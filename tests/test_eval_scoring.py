@@ -15,6 +15,20 @@ def _answer(sql=None, df=None, ok=True, answer="x"):
     return DataAnswer(question="q", sql=sql, result=result, answer=answer, ok=ok)
 
 
+def test_expect_clarification_matches():
+    case = {"id": "c", "expect_clarification": True}
+    ans = _answer(answer="Which airport?", ok=False)
+    assert score_case(case, ans, route="data", clarified=True).passed
+    assert not score_case(case, ans, route="data", clarified=False).passed
+
+
+def test_expect_no_clarification():
+    case = {"id": "c", "expect_clarification": False, "expected_route": "data"}
+    ans = _answer(sql="select 1", df=pd.DataFrame({"x": [1]}))
+    assert score_case(case, ans, route="data", clarified=False).passed
+    assert not score_case(case, ans, route="data", clarified=True).passed
+
+
 def test_expected_route_matches_passes():
     case = {"id": "r", "expected_route": "dataapp", "expect_answerable": True}
     ans = _answer(answer="11968 flights", ok=True)

@@ -50,6 +50,7 @@ class Turn:
     nm_live: NmLiveAnswer | None = None
     answer: str = ""
     sources: list = field(default_factory=list)
+    needs_clarification: bool = False  # True when the turn is a clarifying question
 
 
 def _history_text(history: list[Turn], max_turns: int = 4) -> str:
@@ -65,7 +66,10 @@ def _history_text(history: list[Turn], max_turns: int = 4) -> str:
         if t.data is not None and t.data.sql:
             lines.append(f"(SQL used: {t.data.sql})")
         if t.answer:
-            lines.append(f"Assistant: {t.answer[:200]}")
+            # Flag a clarifying question so the rewriter treats the user's next
+            # message as the answer to it and merges them into one question.
+            prefix = "Assistant (clarifying question)" if t.needs_clarification else "Assistant"
+            lines.append(f"{prefix}: {t.answer[:200]}")
     return "\n".join(lines)
 
 
@@ -89,6 +93,25 @@ def route_question(question: str, client: OllamaClient) -> str:
         return route if route in VALID_ROUTES else "data"
     except Exception:
         return "data"  # default to the data path if routing fails
+
+
+# Routes where a missing subject (which airport/ANSP/country?) blocks an answer.
+_CLARIFIABLE_ROUTES = {"data", "both", "dataapp", "nm_live"}
+
+
+def needs_clarification(question: str, route: str, client: OllamaClient) -> str | None:
+    """Return a single clarifying question if an essential detail is missing,
+    else None. Conservative: only fires when the agent genuinely can't proceed.
+    Failures default to None (proceed) so a hiccup never blocks an answer."""
+    if route not in _CLARIFIABLE_ROUTES:
+        return None
+    try:
+        result = client.chat_json(prompts.build_clarify_messages(question, route))
+        if result.get("needs_clarification") and result.get("question"):
+            return str(result["question"]).strip()
+    except Exception:
+        return None
+    return None
 
 
 # What each route is doing while it works — shown live in the UI status.
@@ -167,6 +190,17 @@ def answer(
             "European air navigation performance (traffic, delays, efficiency, "
             "emissions, the live network, and EUROCONTROL methodology)."
         )
+        return turn
+
+    # Ask one clarifying question if an essential detail is missing (conservative
+    # — only when we genuinely can't proceed). The user's reply flows back as a
+    # follow-up and is merged with this question by rewrite_followup next turn.
+    status("Checking the question…")
+    clarification = needs_clarification(standalone, route, client)
+    if clarification:
+        logger.info("  needs clarification: %r", clarification)
+        turn.needs_clarification = True
+        turn.answer = clarification
         return turn
 
     status(_ROUTE_STATUS.get(route, "Gathering data…"))

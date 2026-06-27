@@ -17,8 +17,16 @@ prose, no markdown fences, no semicolons-separated multiple statements.
 column or table names.
 - Respect each column's NOTE about units and granularity. Never SUM a value that \
 is already an average; never treat a monthly total as a per-flight figure.
-- Prefer aggregation over dumping raw rows. Add ORDER BY and LIMIT when the user \
-asks for "top"/"most"/"least".
+- ALWAYS aggregate; never dump raw per-day rows or do SELECT *. Select only the \
+columns needed to answer, grouped to a sensible granularity, with an aggregate \
+(SUM/AVG) on the metric. For an open-ended "show me <metric> for <entity>" with \
+no stated granularity, default to monthly: GROUP BY YEAR, MONTH_NUM — do not \
+return one row per day, and do not include FLT_DATE in the SELECT. Add ORDER BY, \
+and LIMIT for "top"/"most"/"least".
+  WRONG: SELECT YEAR, MONTH_NUM, FLT_DATE, FLT_TOT_1 FROM airport_traffic WHERE \
+APT_ICAO='EBBR'  (one row per day — never do this)
+  RIGHT: SELECT YEAR, MONTH_NUM, SUM(FLT_TOT_1) AS total FROM airport_traffic \
+WHERE APT_ICAO='EBBR' GROUP BY YEAR, MONTH_NUM ORDER BY YEAR, MONTH_NUM
 - Match the requested TIME GRANULARITY exactly. Datasets are usually monthly with \
 YEAR + MONTH_NUM columns (and sometimes FLT_DATE):
     * "by year" / "yearly" / "annual" / "per year" -> GROUP BY YEAR only (do NOT \
@@ -141,8 +149,7 @@ specific country, airport, ANSP, or airline. (This source is D-1, not real-time.
 airborne now, current total network delay, the most-delayed ACCs right now, or \
 which ATFM regulations are active now.
 - "none": the question is NOT about European air navigation / ANS performance at \
-all (e.g. general knowledge, weather forecasts, other domains). Use this for \
-anything outside the scope of these data sources.
+all (e.g. general knowledge, weather forecasts, other domains).
 
 Guidance:
 - "right now / currently / at the moment / airborne now / active regulations" -> \
@@ -151,10 +158,55 @@ airport/ANSP/airline -> dataapp. "in 2024 / by year / by month / historically" \
 -> data.
 - A value computed FROM the local datasets (earliest/latest year, counts, min/ \
 max, coverage) is "data", even if it mentions "the data" or a dataset name.
-- If the question is clearly outside air navigation performance, use "none".
+- IMPORTANT: "none" is ONLY for topics outside air navigation performance. A \
+question that IS about traffic / delays / emissions / efficiency / punctuality / \
+the network but is VAGUE or missing details (e.g. "get me traffic", "show me \
+delays") is still in-scope — route it to "data" (a later step will ask for any \
+missing detail). Do NOT use "none" just because a question is underspecified.
 """
 
 ROUTER_USER_TEMPLATE = """Question: {question}\n\nOutput the route JSON."""
+
+
+CLARIFY_SYSTEM = """\
+You decide whether a question about European air navigation performance can be \
+answered as-is, or whether ONE essential detail is truly missing. Output ONLY JSON:
+{"needs_clarification": true|false, "question": "<a single clarifying question>"}
+
+DEFAULT TO false — answer unless you truly cannot. Treat these as PRESENT (do \
+NOT ask about them):
+- Subject: a named country/airport/ANSP/airline, OR "the network"/"overall", OR \
+NO subject at all when the question is about the whole network (e.g. "how many \
+aircraft are airborne", "delays right now" mean the whole network).
+- Metric: a metric word IS the subject of many questions — "how many flights", \
+"traffic", "delays", "CO2", "punctuality" all state the metric. A "how many X" \
+question already has its metric (X).
+- Time: "right now/today/latest/this year/in 2024/last year" all count. If a data \
+question gives a subject + metric but no time, that is FINE — default to the \
+latest/all available; do NOT ask.
+- Meta questions about coverage ("how many states are in the data for 2024", \
+"earliest year") are complete as-is.
+
+Set true ONLY when the request names a metric or topic but gives NO subject and \
+is NOT about the whole network — i.e. you literally don't know what to query.
+
+Examples — set false (answer):
+- "How many distinct states are in the data for 2024?" -> false
+- "How many flights did France have on the latest day?" -> false
+- "How many aircraft are airborne right now?" -> false (whole network)
+- "Traffic at Heathrow last year" / "Delays right now" -> false
+
+Examples — set true (ask ONE short question):
+- "Get me traffic" -> "Which airport, country, or ANSP — or the whole network?"
+- "Show me the delays" -> ask the same.
+- "How is it doing?" -> ask which subject and metric.
+
+Keep the clarifying question short; suggest options.
+"""
+
+CLARIFY_USER_TEMPLATE = (
+    "Route chosen: {route}\nQuestion: {question}\n\nOutput the clarification JSON."
+)
 
 
 REWRITE_SYSTEM = """\
@@ -165,6 +217,10 @@ using the conversation so far. Output ONLY the rewritten question, nothing else.
 range, metric) when the follow-up omits it. E.g. after "airport traffic for EBBR \
 by year", a follow-up "add departures and arrivals as separate bars" becomes \
 "Show EBBR airport traffic departures and arrivals per year as a bar chart".
+- If the previous assistant turn was a CLARIFYING QUESTION, treat the user's new \
+message as the answer to it and MERGE them into the original question. E.g. \
+original "show me the delays", clarifying "Which airport?", user "Heathrow" -> \
+"Show the delays for Heathrow".
 - Preserve any chart/visualisation request in the follow-up.
 - If the follow-up is already standalone, output it unchanged.
 """
@@ -378,6 +434,15 @@ def build_router_messages(question: str):
     return [
         Message("system", ROUTER_SYSTEM),
         Message("user", ROUTER_USER_TEMPLATE.format(question=question)),
+    ]
+
+
+def build_clarify_messages(question: str, route: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", CLARIFY_SYSTEM),
+        Message("user", CLARIFY_USER_TEMPLATE.format(question=question, route=route)),
     ]
 
 

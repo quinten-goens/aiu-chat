@@ -28,8 +28,10 @@ def test_valid_bar_spec_parses():
 
 
 def test_y_as_string_is_accepted():
+    # x must be one-per-row for a sensible line, so use a per-year series.
+    df = pd.DataFrame({"YEAR": [2022, 2023, 2024], "TOTAL": [10.0, 30.0, 20.0]})
     spec = {"show_chart": True, "chart_type": "line", "x": "YEAR", "y": "TOTAL"}
-    parsed = parse_spec(spec, DF)
+    parsed = parse_spec(spec, df)
     assert parsed is not None
     assert parsed.y == ["TOTAL"]
 
@@ -90,3 +92,18 @@ def test_multi_y_bar_is_grouped_with_one_trace_per_measure():
     assert fig is not None
     assert fig.layout.barmode == "group"
     assert sorted(t.name for t in fig.data) == ["ARRIVALS", "DEPARTURES"]
+
+
+def test_unaggregated_data_with_many_rows_per_x_is_rejected():
+    # Daily rows charted against MONTH_MON would be spaghetti (100 rows per x).
+    df = pd.DataFrame(
+        {"MONTH_MON": ["JAN"] * 100 + ["FEB"] * 100, "FLT_TOT_1": list(range(200))}
+    )
+    spec = {"show_chart": True, "chart_type": "line", "x": "MONTH_MON", "y": ["FLT_TOT_1"]}
+    assert make_chart(spec, df) is None  # guard: not chart-worthy -> table only
+
+
+def test_one_row_per_x_is_allowed():
+    df = pd.DataFrame({"YEAR": [2022, 2023, 2024], "total": [1, 2, 3]})
+    spec = {"show_chart": True, "chart_type": "bar", "x": "YEAR", "y": ["total"]}
+    assert make_chart(spec, df) is not None

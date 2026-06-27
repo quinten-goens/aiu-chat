@@ -109,6 +109,12 @@ def _render_turn(turn, idx):
     `idx` makes element keys unique across replayed turns — Streamlit raises
     StreamlitDuplicateElementId if two charts/dataframes share an auto-ID.
     """
+    # A clarifying question: show it plainly, no route chrome.
+    if turn.needs_clarification:
+        st.markdown(f"❓ {turn.answer}")
+        st.caption("Please reply with the detail and I'll continue.")
+        return
+
     # Show how the question was routed (transparency into the agent's choice).
     label, why = ROUTE_INFO.get(turn.route, (turn.route, ""))
     if turn.standalone_question and turn.standalone_question != turn.question:

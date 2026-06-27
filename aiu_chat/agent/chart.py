@@ -60,6 +60,15 @@ def parse_spec(spec: dict | None, df: pd.DataFrame) -> ChartSpec | None:
     if series is not None and series not in columns:
         series = None  # drop an invalid series rather than failing the whole chart
 
+    # Guard against charting un-aggregated data: if x (optionally split by series)
+    # has many rows per value, a line/area/bar becomes spaghetti. Require x to be
+    # mostly unique within each series group. The table is still shown.
+    group_cols = [x] + ([series] if series else [])
+    rows = len(df)
+    groups = df.groupby(group_cols, dropna=False).ngroups if rows else 0
+    if groups and rows / groups > 1.5:  # >1.5 rows per x point on average
+        return None
+
     title = spec.get("title")
     return ChartSpec(chart_type=chart_type, x=x, y=y_list, series=series, title=title)
 

@@ -38,13 +38,26 @@ def _scalar_values(answer: DataAnswer):
     return [v for row in answer.result.dataframe.itertuples(index=False) for v in row]
 
 
-def score_case(case: dict, answer: DataAnswer, route: str | None = None) -> CaseResult:
+def score_case(
+    case: dict, answer: DataAnswer, route: str | None = None, clarified: bool = False
+) -> CaseResult:
     """Score one gold case against a produced DataAnswer. Pure / no I/O."""
     reasons: list[str] = []
 
     # 0. Expected route (guards the router's classification).
     if "expected_route" in case and route is not None and route != case["expected_route"]:
         reasons.append(f"expected route {case['expected_route']!r}, got {route!r}")
+
+    # Clarification expectation (guards the "ask when vague" behaviour).
+    if "expect_clarification" in case:
+        want = bool(case["expect_clarification"])
+        if want != clarified:
+            reasons.append(f"expected clarification={want}, got {clarified}")
+            return CaseResult(case["id"], passed=False, reasons=reasons)
+        if want:
+            # Correctly asked for clarification — that's the whole expectation.
+            return CaseResult(case["id"], passed=not reasons, reasons=reasons)
+        # want=False: fall through to the normal answer checks.
 
     # 1. Answerability expectation.
     if case.get("expect_answerable") is False:
@@ -102,16 +115,17 @@ def load_cases(path: Path = GOLD_PATH) -> list[dict]:
     return data["cases"]
 
 
-def _run_case(question: str) -> tuple[DataAnswer, str]:
+def _run_case(question: str) -> tuple[DataAnswer, str, bool]:
     """Run a question through the full agent and adapt the result for scoring.
 
-    Returns (scoreable DataAnswer, route). Imported lazily so importing the
-    runner (e.g. for unit tests of score_case) doesn't require the whole
+    Returns (scoreable DataAnswer, route, clarified). Imported lazily so importing
+    the runner (e.g. for unit tests of score_case) doesn't require the whole
     orchestrator graph. Charts are skipped for speed.
     """
     from aiu_chat.agent.orchestrator import answer
 
     turn = answer(question)
+    clarified = turn.needs_clarification
 
     # For data/both, score the underlying DataAnswer (has SQL + executed rows).
     if turn.data is not None:
@@ -119,7 +133,7 @@ def _run_case(question: str) -> tuple[DataAnswer, str]:
         # expected_text_in checks can see it.
         if turn.concept is not None and turn.concept.ok:
             turn.data.answer = turn.answer
-        return turn.data, turn.route
+        return turn.data, turn.route, clarified
 
     # Other paths (concept / nop / dataapp / catalog): synthesize a DataAnswer
     # carrying the combined answer text and whether any sub-answer succeeded.
@@ -133,6 +147,7 @@ def _run_case(question: str) -> tuple[DataAnswer, str]:
     return (
         DataAnswer(question=question, sql=None, result=None, answer=turn.answer, ok=ok),
         turn.route,
+        clarified,
     )
 
 
@@ -143,14 +158,14 @@ def run(quiet: bool = False, path: Path = GOLD_PATH) -> tuple[int, int]:
 
     for case in cases:
         try:
-            answer, route = _run_case(case["question"])
+            answer, route, clarified = _run_case(case["question"])
         except Exception as exc:  # model unreachable, etc.
             results.append(CaseResult(case["id"], passed=False, reasons=[f"error: {exc}"]))
             if not quiet:
                 print(f"  ERROR {case['id']}: {exc}")
             continue
 
-        res = score_case(case, answer, route=route)
+        res = score_case(case, answer, route=route, clarified=clarified)
         results.append(res)
         if not quiet:
             mark = "PASS" if res.passed else "FAIL"

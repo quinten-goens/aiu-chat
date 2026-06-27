@@ -78,8 +78,11 @@ questions the model writes a query; the actual figures always come from executin
 that query (or a live API), never from the model's memory. Results can be shown
 as **interactive charts** when useful.
 
-The assistant also rewrites follow-up questions into standalone ones (so
-"what about France?" works), and states the **as-of date** of the data.
+If a question is missing an essential detail (e.g. "show me the delays" — for
+which airport?), the assistant **asks one clarifying question** instead of
+guessing; your reply is merged with the original question. It also rewrites
+follow-ups into standalone questions (so "what about France?" works) and states
+the **as-of date** of the data.
 """
     )
 

@@ -39,6 +39,53 @@ def test_route_defaults_to_data_on_garbage():
     assert route_question("q", FakeClient(json_obj={"route": "nonsense"})) == "data"
 
 
+# --- clarification ---------------------------------------------------------
+
+class _SeqClient:
+    """Returns queued chat_json dicts in order (route call, then clarify call)."""
+
+    def __init__(self, json_seq, chat_text=""):
+        self._seq = list(json_seq)
+        self.chat_text = chat_text
+
+    def chat(self, messages, temperature=0.0, json_mode=False):
+        return self.chat_text
+
+    def chat_json(self, messages, temperature=0.0):
+        return self._seq.pop(0)
+
+
+def test_needs_clarification_returns_question():
+    from aiu_chat.agent.orchestrator import needs_clarification
+    c = _SeqClient([{"needs_clarification": True, "question": "Which airport?"}])
+    assert needs_clarification("show me the delays", "data", c) == "Which airport?"
+
+
+def test_needs_clarification_false_proceeds():
+    from aiu_chat.agent.orchestrator import needs_clarification
+    c = _SeqClient([{"needs_clarification": False}])
+    assert needs_clarification("CO2 in 2024", "data", c) is None
+
+
+def test_needs_clarification_skipped_for_concept_route():
+    from aiu_chat.agent.orchestrator import needs_clarification
+    # concept route is not clarifiable; no LLM call needed
+    assert needs_clarification("what is ATFM?", "concept", FakeClient()) is None
+
+
+def test_clarification_turn_short_circuits_dispatch():
+    # route=data, then clarify asks a question -> no data path called.
+    client = _SeqClient([
+        {"route": "data"},
+        {"needs_clarification": True, "question": "Which airport?"},
+    ])
+    with patch.object(orch, "answer_data_question") as md:
+        turn = answer("show me the delays", client=client, catalog=object())
+    md.assert_not_called()
+    assert turn.needs_clarification is True
+    assert turn.answer == "Which airport?"
+
+
 def test_route_accepts_new_sources():
     for r in ("nop", "dataapp", "nm_live", "none"):
         assert route_question("q", FakeClient(json_obj={"route": r})) == r

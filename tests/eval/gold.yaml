@@ -113,3 +113,16 @@ cases:
     question: "What is the GDP of Japan?"
     expected_route: none
     expect_answerable: false
+
+  # --- clarification (ask when vague, don't nag when clear) ---
+
+  - id: clarify_vague_metric_no_subject
+    question: "Get me traffic"
+    # in-domain but no subject -> should ask, not decline or guess
+    expect_clarification: true
+
+  - id: no_clarify_when_specified
+    question: "Traffic at Heathrow in 2024"
+    # subject + metric + time present -> answer directly, no nagging
+    expect_clarification: false
+    expected_route: data
