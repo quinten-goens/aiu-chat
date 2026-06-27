@@ -44,6 +44,10 @@ numbers; quote the values from the rows.
 - Be concise and direct. Lead with the answer.
 - If the result is empty, say the data does not contain an answer.
 - Mention the data's as-of date if it is relevant to completeness.
+- The rows may be a SAMPLE of a larger result (look for a "_note" field with \
+"head"/"tail"). If so, the full data is shown to the user in a table — do NOT \
+state that data is missing or that coverage ends at the last row you can see. \
+Describe the overall range using the as-of date and the head/tail you are given.
 """
 
 ANSWER_USER_TEMPLATE = """\
@@ -86,8 +90,15 @@ Question: {question}
 
 Result columns: {columns}
 First rows (JSON): {rows}
-
+{force_note}
 Output the chart JSON."""
+
+CHART_FORCE_NOTE = (
+    "\nThe user explicitly asked for a chart, so you MUST set show_chart=true and "
+    "pick the chart_type/x/y/series that best matches their request (e.g. group "
+    "arrivals vs departures with a 'series' column if they ask for separate "
+    "coloured bars).\n"
+)
 
 
 ROUTER_SYSTEM = """\
@@ -105,9 +116,15 @@ ROUTER_USER_TEMPLATE = """Question: {question}\n\nOutput the route JSON."""
 
 
 REWRITE_SYSTEM = """\
-You rewrite a possibly-elliptical follow-up question into a standalone question \
-using the conversation so far. Output ONLY the rewritten question text, nothing \
-else. If the question is already standalone, output it unchanged.
+You rewrite a possibly-elliptical follow-up into a single standalone question \
+using the conversation so far. Output ONLY the rewritten question, nothing else.
+
+- Carry over the subject of the previous turn (airport/ANSP/state, dataset, time \
+range, metric) when the follow-up omits it. E.g. after "airport traffic for EBBR \
+by year", a follow-up "add departures and arrivals as separate bars" becomes \
+"Show EBBR airport traffic departures and arrivals per year as a bar chart".
+- Preserve any chart/visualisation request in the follow-up.
+- If the follow-up is already standalone, output it unchanged.
 """
 
 REWRITE_USER_TEMPLATE = """\
@@ -125,8 +142,11 @@ ONLY the provided reference excerpts.
 
 Rules:
 - Base your answer strictly on the excerpts. Do not add outside knowledge.
-- If the excerpts don't contain the answer, say you don't have that information.
-- Be concise. Cite the source title(s) you used.
+- If the excerpts don't contain the answer, say you don't have that information \
+in one short sentence. Do NOT list or summarise the unrelated excerpts you were \
+given, and do NOT enumerate which source numbers you looked at.
+- Only cite a source if you actually used its content in your answer.
+- Be concise.
 """
 
 CONCEPT_USER_TEMPLATE = """\
@@ -161,7 +181,7 @@ def build_answer_messages(question: str, sql: str, rows_json: str, as_of: str | 
     ]
 
 
-def build_chart_messages(question: str, columns: list[str], rows_json: str):
+def build_chart_messages(question: str, columns: list[str], rows_json: str, force: bool = False):
     from aiu_chat.agent.llm import Message
 
     return [
@@ -169,7 +189,10 @@ def build_chart_messages(question: str, columns: list[str], rows_json: str):
         Message(
             "user",
             CHART_USER_TEMPLATE.format(
-                question=question, columns=", ".join(columns), rows=rows_json
+                question=question,
+                columns=", ".join(columns),
+                rows=rows_json,
+                force_note=CHART_FORCE_NOTE if force else "",
             ),
         ),
     ]

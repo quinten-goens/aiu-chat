@@ -18,6 +18,18 @@ from aiu_chat.agent.sql_tool import SqlResult, UnsafeSQLError, run_sql
 
 CANNOT_ANSWER = "CANNOT_ANSWER"
 
+# Words signalling the user explicitly wants a visualisation.
+_CHART_INTENT_RE = re.compile(
+    r"\b(chart|graph|plot|bar ?chart|line ?chart|visuali[sz]e|"
+    r"bars?|histogram|pie|trend line)\b",
+    re.IGNORECASE,
+)
+
+
+def wants_chart(question: str) -> bool:
+    """True if the question explicitly asks for a chart/visualisation."""
+    return bool(_CHART_INTENT_RE.search(question))
+
 
 @dataclass
 class DataAnswer:
@@ -99,10 +111,12 @@ def answer_data_question(
     answer = client.chat(answer_messages, temperature=0.0)
 
     # 4. Ask for a chart spec when the result is plausibly chart-worthy (>=2
-    # rows). Failures here never break the answer — charts are best-effort.
+    # rows), or whenever the user explicitly asked for a chart. Failures here
+    # never break the answer — charts are best-effort.
     chart_spec = None
-    if with_chart and len(result.dataframe) >= 2:
-        chart_spec = _maybe_chart_spec(client, question, result.dataframe)
+    force = wants_chart(question)
+    if with_chart and (len(result.dataframe) >= 2 or force):
+        chart_spec = _maybe_chart_spec(client, question, result.dataframe, force=force)
 
     return DataAnswer(
         question=question,
@@ -114,11 +128,11 @@ def answer_data_question(
     )
 
 
-def _maybe_chart_spec(client, question, df):
+def _maybe_chart_spec(client, question, df, force: bool = False):
     """Best-effort chart spec from the model; None on any problem."""
     try:
         messages = prompts.build_chart_messages(
-            question, list(df.columns), _rows_to_json(df, max_rows=20)
+            question, list(df.columns), _rows_to_json(df, max_rows=20), force=force
         )
         return client.chat_json(messages, temperature=0.0)
     except Exception:
@@ -126,5 +140,15 @@ def _maybe_chart_spec(client, question, df):
 
 
 def _rows_to_json(df: pd.DataFrame, max_rows: int = 100) -> str:
-    """Compact JSON of the result for the narration prompt (capped for context)."""
-    return df.head(max_rows).to_json(orient="records", date_format="iso")
+    """Compact JSON of the result for a prompt (capped for context).
+
+    For a result that fits, send it whole. For a larger result, send the head
+    AND tail so the model never wrongly concludes data is 'missing' beyond the
+    window (e.g. claiming no data after the 100th row of a time series).
+    """
+    if len(df) <= max_rows:
+        return df.to_json(orient="records", date_format="iso")
+    half = max_rows // 2
+    head = df.head(half).to_json(orient="records", date_format="iso")
+    tail = df.tail(half).to_json(orient="records", date_format="iso")
+    return f'{{"_note": "showing first {half} and last {half} of {len(df)} rows", "head": {head}, "tail": {tail}}}'

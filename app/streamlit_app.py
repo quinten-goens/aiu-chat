@@ -35,8 +35,12 @@ def _client():
     return OllamaClient()
 
 
-def _render_turn(turn):
-    """Render a Turn: combined prose, optional chart + table + SQL, and sources."""
+def _render_turn(turn, idx):
+    """Render a Turn: combined prose, optional chart + table + SQL, and sources.
+
+    `idx` makes element keys unique across replayed turns — Streamlit raises
+    StreamlitDuplicateElementId if two charts/dataframes share an auto-ID.
+    """
     st.markdown(turn.answer)
 
     data = turn.data
@@ -45,8 +49,8 @@ def _render_turn(turn):
         # Chart first (if the spec is valid + chart-worthy), then the table.
         fig = make_chart(data.chart_spec, df)
         if fig is not None:
-            st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+            st.plotly_chart(fig, use_container_width=True, key=f"chart_{idx}")
+        st.dataframe(df, use_container_width=True, hide_index=True, key=f"df_{idx}")
         if data.result.truncated:
             st.caption(f"Showing first {data.result.row_count} rows.")
         if data.sql:
@@ -86,11 +90,11 @@ def main():
     if "history" not in st.session_state:
         st.session_state.history = []  # list of Turn
 
-    # Replay history.
-    for msg in st.session_state.messages:
+    # Replay history. The message index gives every element a stable unique key.
+    for i, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             if msg["role"] == "assistant" and msg.get("turn") is not None:
-                _render_turn(msg["turn"])
+                _render_turn(msg["turn"], idx=i)
             else:
                 st.markdown(msg["content"])
 
@@ -113,7 +117,8 @@ def main():
                     st.error(f"Could not reach the local model: {exc}")
                     turn = None
             if turn is not None:
-                _render_turn(turn)
+                # This turn will occupy the next message slot; key by that index.
+                _render_turn(turn, idx=len(st.session_state.messages))
                 st.session_state.history.append(turn)
                 st.session_state.messages.append(
                     {"role": "assistant", "content": turn.answer, "turn": turn}

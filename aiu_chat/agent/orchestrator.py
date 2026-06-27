@@ -7,6 +7,7 @@ This ties the data path and the concept path together into one entry point,
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from aiu_chat.agent import prompts
@@ -18,6 +19,19 @@ from aiu_chat.agent.text_to_sql import DataAnswer, answer_data_question
 logger = logging.getLogger("aiu_chat.agent")
 
 VALID_ROUTES = {"data", "concept", "both"}
+
+# Questions about what data/reports the system holds — answer from the catalog.
+_AVAILABILITY_RE = re.compile(
+    r"\b(what|which)\b.*\b(data|datasets?|tables?|reports?)\b.*"
+    r"\b(have|available|access|hold|got|contain|offer)\b"
+    r"|\b(data|datasets?)\b.*\b(available|do you have)\b"
+    r"|\bwhat can you (tell me about|answer)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_availability_question(question: str) -> bool:
+    return bool(_AVAILABILITY_RE.search(question))
 
 
 @dataclass
@@ -33,13 +47,19 @@ class Turn:
 
 
 def _history_text(history: list[Turn], max_turns: int = 4) -> str:
-    """Render recent turns for the rewrite prompt."""
+    """Render recent turns for the rewrite prompt.
+
+    Includes the prior SQL so the rewriter knows the concrete subject (which
+    airport/ANSP/dataset/columns) when a follow-up omits it.
+    """
     recent = history[-max_turns:]
     lines = []
     for t in recent:
         lines.append(f"User: {t.question}")
+        if t.data is not None and t.data.sql:
+            lines.append(f"(SQL used: {t.data.sql})")
         if t.answer:
-            lines.append(f"Assistant: {t.answer[:300]}")
+            lines.append(f"Assistant: {t.answer[:200]}")
     return "\n".join(lines)
 
 
@@ -77,6 +97,16 @@ def answer(
     history = history or []
 
     standalone = rewrite_followup(question, history, client)
+
+    # Data-availability questions ("what data/datasets do you have?", "what data
+    # is available for X") are answered from the catalog, not vector search —
+    # the docs corpus dilutes them and gives wrong "no info" answers.
+    if _is_availability_question(standalone):
+        logger.info("turn route=catalog | q=%r", question)
+        turn = Turn(question=question, standalone_question=standalone, route="catalog")
+        turn.answer = catalog.describe()
+        return turn
+
     route = route_question(standalone, client)
     logger.info("turn route=%s | q=%r | standalone=%r", route, question, standalone)
 

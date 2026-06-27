@@ -30,6 +30,18 @@ class Catalog:
     def get(self, table: str) -> DatasetCatalogEntry | None:
         return next((d for d in self.datasets if d.table == table), None)
 
+    def describe(self) -> str:
+        """A user-facing summary of the available datasets (for 'what data do
+        you have?' questions). Answered from the catalog, not vector search."""
+        lines = ["I have these EUROCONTROL performance datasets:"]
+        for d in self.datasets:
+            cols = ", ".join(c["name"] for c in d.columns[:8])
+            more = "…" if len(d.columns) > 8 else ""
+            through = f" (through {d.as_of})" if d.as_of else ""
+            lines.append(f"- **{d.title}** (`{d.table}`){through}: {d.description}")
+            lines.append(f"  Columns: {cols}{more}")
+        return "\n".join(lines)
+
     def prompt_text(self) -> str:
         """Human-readable schema + semantics for the SQL-generation prompt."""
         lines: list[str] = []
