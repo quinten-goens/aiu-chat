@@ -92,3 +92,23 @@ def test_dataapp_answer_happy_path():
     assert ans.ok
     assert ans.result.entity.name == "France"
     assert "11968" in ans.answer
+
+
+# --- NM live ----------------------------------------------------------------
+
+def test_nm_live_answer_uses_snapshot():
+    from aiu_chat.agent.nm_answer import answer_nm_question
+    from aiu_chat.sources.nm_live import NmLiveSnapshot, NmRegulation
+
+    snap = NmLiveSnapshot(
+        airborne=5113, landed=21804, planned=5881, total=32798, total_delay_min=186177,
+        top_delays=[{"displayName": "LONDON ACC", "delay": 20324.0, "averageDelay": 0}],
+        regulations=[NmRegulation("R1", "REIMS ACC", "WEATHER", 5554, 94)],
+    )
+    ans = answer_nm_question(
+        "how many airborne now?", client=_FakeClient("5113 aircraft are airborne."),
+        fetch=lambda: snap,
+    )
+    assert ans.ok
+    assert ans.snapshot.airborne == 5113
+    assert "5113" in ans.answer

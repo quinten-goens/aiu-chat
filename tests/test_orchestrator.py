@@ -40,7 +40,7 @@ def test_route_defaults_to_data_on_garbage():
 
 
 def test_route_accepts_new_sources():
-    for r in ("nop", "dataapp"):
+    for r in ("nop", "dataapp", "nm_live", "none"):
         assert route_question("q", FakeClient(json_obj={"route": r})) == r
 
 
@@ -124,3 +124,27 @@ def test_dataapp_route_dispatches_to_dataapp():
     md.assert_not_called()
     assert turn.route == "dataapp"
     assert "11968" in turn.answer
+
+
+def test_nm_live_route_dispatches_to_nm():
+    from aiu_chat.agent.nm_answer import NmLiveAnswer
+    client = FakeClient(json_obj={"route": "nm_live"})
+    with patch.object(orch, "answer_nm_question",
+                      return_value=NmLiveAnswer("q", "5113 airborne now", ok=True)) as mnm, \
+         patch.object(orch, "answer_data_question") as md:
+        turn = answer("how many airborne right now?", client=client, catalog=object())
+    mnm.assert_called_once()
+    md.assert_not_called()
+    assert turn.route == "nm_live"
+    assert "5113" in turn.answer
+
+
+def test_none_route_declines_without_calling_paths():
+    client = FakeClient(json_obj={"route": "none"})
+    with patch.object(orch, "answer_data_question") as md, \
+         patch.object(orch, "answer_nm_question") as mnm:
+        turn = answer("what is the GDP of Japan?", client=client, catalog=object())
+    md.assert_not_called()
+    mnm.assert_not_called()
+    assert turn.route == "none"
+    assert "outside" in turn.answer.lower()

@@ -25,6 +25,66 @@ DISCLAIMER = (
 )
 
 
+# Suggested topics shown when the chat is empty — one row of cards per theme,
+# each with a few example questions that exercise the different sources.
+SUGGESTIONS = [
+    (
+        "🟢 Live now (real-time)",
+        [
+            "How many aircraft are airborne right now?",
+            "Which areas have the most delay right now?",
+            "Are there active weather regulations now?",
+        ],
+    ),
+    (
+        "📅 Latest daily (D-1)",
+        [
+            "How many flights did France have on the latest day?",
+            "What is the latest daily ATFM delay for DSNA?",
+            "Latest punctuality at Heathrow?",
+        ],
+    ),
+    (
+        "📊 Historical (by year/month)",
+        [
+            "Which 5 states had the most CO2 emissions in 2024?",
+            "Show EGLL airport traffic per year as a bar chart",
+            "Which ANSP had the most en-route ATFM delay in 2025?",
+        ],
+    ),
+    (
+        "📖 NOP & methodology",
+        [
+            "What's the latest NOP weather advisory?",
+            "What does ATFM stand for?",
+            "How is additional ASMA time calculated?",
+        ],
+    ),
+]
+
+
+# Human-readable explanation of each route, shown so the user sees how (and why)
+# the assistant answered.
+ROUTE_INFO = {
+    "data": ("📊 Historical data (SQL)",
+             "Recognised a question about past figures → wrote SQL and ran it on the local datasets."),
+    "concept": ("📖 Concept / methodology",
+                "Recognised a definition/methodology question → searched the reference docs & PDFs."),
+    "both": ("📊+📖 Data and concept",
+             "Needed both a figure and an explanation → combined the data and concept paths."),
+    "nop": ("📡 NOP messages",
+            "Recognised an operational/NOP question → fetched and interpreted recent NOP messages."),
+    "dataapp": ("📅 Latest daily (D-1)",
+                "Recognised a request for recent daily figures → queried the EUROCONTROL Data App API (D-1)."),
+    "nm_live": ("🟢 Real-time network",
+                "Recognised a 'right now' question → fetched the live Network Manager snapshot."),
+    "catalog": ("🗂️ Data catalogue",
+                "Recognised a 'what data do you have' question → answered from the dataset catalogue."),
+    "none": ("🚫 Out of scope",
+             "Judged the question to be outside European air navigation performance → declined."),
+}
+
+
 @st.cache_resource(show_spinner=False)
 def _catalog():
     return get_catalog()
@@ -41,6 +101,15 @@ def _render_turn(turn, idx):
     `idx` makes element keys unique across replayed turns — Streamlit raises
     StreamlitDuplicateElementId if two charts/dataframes share an auto-ID.
     """
+    # Show how the question was routed (transparency into the agent's choice).
+    label, why = ROUTE_INFO.get(turn.route, (turn.route, ""))
+    if turn.standalone_question and turn.standalone_question != turn.question:
+        why += f"\n\nInterpreted your question as: *{turn.standalone_question}*"
+    st.caption(f"**Route:** {label}")
+    if why:
+        with st.expander("How I answered this"):
+            st.markdown(why)
+
     st.markdown(turn.answer)
 
     data = turn.data
@@ -65,10 +134,17 @@ def _render_turn(turn, idx):
                 st.text(m.text[:1500])
         st.caption("Source: EUROCONTROL Network Operations Portal (live)")
 
-    # Live Data App figures: note the entity + as-of date.
+    # Data App figures: D-1 (latest daily), not real-time — note entity + date.
     if turn.dataapp is not None and turn.dataapp.result is not None:
         r = turn.dataapp.result
-        st.caption(f"Source: EUROCONTROL Data App — {r.metric} for {r.entity.name}, as of {r.sync_date}")
+        st.caption(
+            f"Source: EUROCONTROL Data App — {r.metric} for {r.entity.name}, "
+            f"latest daily figures as of {r.sync_date} (D-1, not real-time)"
+        )
+
+    # NM live snapshot: genuinely real-time.
+    if turn.nm_live is not None and turn.nm_live.snapshot is not None:
+        st.caption("Source: EUROCONTROL Network Manager — live (real-time)")
 
     if turn.sources:
         seen = []
@@ -77,6 +153,21 @@ def _render_turn(turn, idx):
                 seen.append((s.source_title, s.source_url))
         links = " · ".join(f"[{title}]({url})" for title, url in seen)
         st.caption(f"Sources: {links}")
+
+
+def _render_suggestions():
+    """Topic cards with example questions; clicking one asks it. Returns the
+    chosen question, or None."""
+    st.markdown("#### Try one of these")
+    chosen = None
+    cols = st.columns(len(SUGGESTIONS))
+    for col, (topic, questions) in zip(cols, SUGGESTIONS):
+        with col:
+            st.markdown(f"**{topic}**")
+            for j, q in enumerate(questions):
+                if st.button(q, key=f"sugg_{topic}_{j}", use_container_width=True):
+                    chosen = q
+    return chosen
 
 
 def main():
@@ -111,14 +202,18 @@ def main():
             else:
                 st.markdown(msg["content"])
 
-    prompt = st.chat_input("e.g. Which 5 states had the most CO2 emissions in 2024?")
+    # Suggestion cards while the conversation is empty (the "middle" of the chat).
+    suggested = _render_suggestions() if not st.session_state.messages else None
+
+    typed = st.chat_input("e.g. Which 5 states had the most CO2 emissions in 2024?")
+    prompt = typed or suggested
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking…"):
+            with st.spinner("Thinking… (choosing a source and gathering data)"):
                 try:
                     turn = answer(
                         prompt,
@@ -136,6 +231,10 @@ def main():
                 st.session_state.messages.append(
                     {"role": "assistant", "content": turn.answer, "turn": turn}
                 )
+        # A suggestion click sets state mid-script; rerun so the cards disappear
+        # and the new turn renders through the normal replay path.
+        if suggested:
+            st.rerun()
 
     st.divider()
     st.caption(DISCLAIMER)

@@ -123,28 +123,35 @@ CHART_FORCE_NOTE = (
 
 ROUTER_SYSTEM = """\
 You classify a user's question about European air navigation performance. Output \
-ONLY a JSON object: {"route": "data" | "concept" | "both" | "nop" | "dataapp"}.
+ONLY a JSON object: \
+{"route": "data" | "concept" | "both" | "nop" | "dataapp" | "nm_live" | "none"}.
 
 - "data": HISTORICAL monthly figures from the local datasets (counts, totals, \
 averages, rankings, trends, comparisons across states/airports/years/months). \
-This is the default for most quantitative questions.
+The default for most quantitative questions about the past.
 - "concept": asks what something MEANS or how a metric is defined/computed \
 (definitions, acronyms, methodology).
 - "both": needs a historical number AND an explanation of a term/methodology.
-- "nop": about NETWORK OPERATIONS PORTAL (NOP) messages/updates — operational \
-situation, weather/CB advisories, regulations, tactical updates, "what's \
-happening on the network".
-- "dataapp": asks for CURRENT / TODAY / live near-real-time figures (today, this \
-week, year-to-date) of traffic, ATFM delay, CO2, or punctuality for a specific \
-country, airport, ANSP, or airline.
+- "nop": about NETWORK OPERATIONS PORTAL (NOP) message updates — the operational \
+situation, weather/CB advisories, tactical updates as described in NOP messages.
+- "dataapp": recent DAILY figures (about yesterday / latest available day, this \
+week, or year-to-date) of traffic, ATFM delay, CO2, or punctuality for a \
+specific country, airport, ANSP, or airline. (This source is D-1, not real-time.)
+- "nm_live": the REAL-TIME network state RIGHT NOW — how many aircraft are \
+airborne now, current total network delay, the most-delayed ACCs right now, or \
+which ATFM regulations are active now.
+- "none": the question is NOT about European air navigation / ANS performance at \
+all (e.g. general knowledge, weather forecasts, other domains). Use this for \
+anything outside the scope of these data sources.
 
-Prefer "data" for any historical/by-year/by-month question; use "dataapp" only \
-when the question is clearly about the current/live situation.
-
-A question that asks for a value computed FROM the datasets — including the \
-earliest/latest year, a count of rows/states, a min/max, or coverage of a \
-specific metric — is "data", even if it mentions "the data" or a dataset name. \
-"concept" is only for what a TERM or METHODOLOGY means.
+Guidance:
+- "right now / currently / at the moment / airborne now / active regulations" -> \
+nm_live. "today / yesterday / this week / year-to-date" for a named country/ \
+airport/ANSP/airline -> dataapp. "in 2024 / by year / by month / historically" \
+-> data.
+- A value computed FROM the local datasets (earliest/latest year, counts, min/ \
+max, coverage) is "data", even if it mentions "the data" or a dataset name.
+- If the question is clearly outside air navigation performance, use "none".
 """
 
 ROUTER_USER_TEMPLATE = """Question: {question}\n\nOutput the route JSON."""
@@ -192,11 +199,14 @@ its ICAO code if given), "ansp" for an air navigation service provider, \
 DATAAPP_EXTRACT_USER = """Question: {question}\n\nOutput the request JSON."""
 
 DATAAPP_ANSWER_SYSTEM = """\
-You answer using live EUROCONTROL Data App figures provided as JSON records.
+You answer using EUROCONTROL Data App figures provided as JSON records. This data \
+is updated daily and reflects the latest available day (D-1, i.e. yesterday), NOT \
+real-time — describe it as the latest daily figures, not "right now".
 
-Each record has: networkType (total/avg), dateRange (DY=today, WK=this week, \
-Y2D=year-to-date), and value or avgValue. Quote the relevant figures; do not \
-invent numbers. Lead with the direct answer and mention the data date.
+Each record has: networkType (total/avg), dateRange (DY=the latest reported day, \
+WK=last 7 days, Y2D=year-to-date), and value or avgValue. Quote the relevant \
+figures; do not invent numbers. Lead with the direct answer and state the data \
+date (which is the latest available day).
 """
 
 DATAAPP_ANSWER_USER = """\
@@ -206,6 +216,25 @@ Metric: {metric} for {entity} (as of {sync_date})
 Records (JSON): {records}
 
 Write a short, grounded answer."""
+
+
+NM_LIVE_SYSTEM = """\
+You answer questions about the CURRENT, real-time state of the European air \
+traffic network, using ONLY the provided live snapshot.
+
+The snapshot has: airborne flights now, landed/planned/total flights today, total \
+network ATFM delay (minutes), the most-delayed area control centres (ACCs), and \
+active ATFM regulations (location, reason, delay, impacted flights). Quote the \
+figures; do not invent any. This data is LIVE (right now). Be concise.
+"""
+
+NM_LIVE_USER_TEMPLATE = """\
+Question: {question}
+
+Live network snapshot (JSON):
+{snapshot}
+
+Answer using only this snapshot."""
 
 
 NOP_SYSTEM = """\
@@ -307,6 +336,15 @@ def build_nop_messages(question: str, messages_text: str):
     return [
         Message("system", NOP_SYSTEM),
         Message("user", NOP_USER_TEMPLATE.format(question=question, messages=messages_text)),
+    ]
+
+
+def build_nm_live_messages(question: str, snapshot_json: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", NM_LIVE_SYSTEM),
+        Message("user", NM_LIVE_USER_TEMPLATE.format(question=question, snapshot=snapshot_json)),
     ]
 
 

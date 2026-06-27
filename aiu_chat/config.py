@@ -59,7 +59,14 @@ PB_NOP_USER_EMAIL = os.getenv("PB_NOP_USER_EMAIL", "")
 PB_NOP_USER_PASSWORD = os.getenv("PB_NOP_USER_PASSWORD", "")
 
 # --- EUROCONTROL Data App API ----------------------------------------------
+# NOTE: this API is D-1 (yesterday's daily figures), not real-time.
 DATAAPP_BASE = os.getenv("AIU_DATAAPP_BASE", "https://api-data-app.eurocontrol.int/api").rstrip("/")
+
+# --- EUROCONTROL NM live API -----------------------------------------------
+# The genuinely real-time Network Manager API behind .../performance/live.html.
+NM_LIVE_BASE = os.getenv(
+    "AIU_NM_LIVE_BASE", "https://int-api.nsv.eurocontrol.int/eurocontrol"
+).rstrip("/")
 
 
 def nop_configured() -> bool:

@@ -15,12 +15,13 @@ from aiu_chat.agent.catalog import Catalog, get_catalog
 from aiu_chat.agent.concept import ConceptAnswer, answer_concept_question
 from aiu_chat.agent.dataapp_answer import DataAppAnswer, answer_dataapp_question
 from aiu_chat.agent.llm import OllamaClient
+from aiu_chat.agent.nm_answer import NmLiveAnswer, answer_nm_question
 from aiu_chat.agent.nop_answer import NopAnswer, answer_nop_question
 from aiu_chat.agent.text_to_sql import DataAnswer, answer_data_question
 
 logger = logging.getLogger("aiu_chat.agent")
 
-VALID_ROUTES = {"data", "concept", "both", "nop", "dataapp"}
+VALID_ROUTES = {"data", "concept", "both", "nop", "dataapp", "nm_live", "none"}
 
 # Questions about what data/reports the system holds — answer from the catalog.
 _AVAILABILITY_RE = re.compile(
@@ -46,6 +47,7 @@ class Turn:
     concept: ConceptAnswer | None = None
     nop: NopAnswer | None = None
     dataapp: DataAppAnswer | None = None
+    nm_live: NmLiveAnswer | None = None
     answer: str = ""
     sources: list = field(default_factory=list)
 
@@ -116,6 +118,15 @@ def answer(
 
     turn = Turn(question=question, standalone_question=standalone, route=route)
 
+    # Out-of-scope questions decline cleanly rather than forcing a path.
+    if route == "none":
+        turn.answer = (
+            "That's outside what I can help with — I answer questions about "
+            "European air navigation performance (traffic, delays, efficiency, "
+            "emissions, the live network, and EUROCONTROL methodology)."
+        )
+        return turn
+
     if route in ("data", "both"):
         turn.data = answer_data_question(standalone, client=client, catalog=catalog)
         logger.info("  data ok=%s sql=%r", turn.data.ok, turn.data.sql)
@@ -136,6 +147,9 @@ def answer(
             turn.dataapp.ok,
             turn.dataapp.result.entity.name if turn.dataapp.result else None,
         )
+    if route == "nm_live":
+        turn.nm_live = answer_nm_question(standalone, client=client)
+        logger.info("  nm_live ok=%s", turn.nm_live.ok)
 
     turn.answer, turn.sources = _combine(turn)
     return turn
@@ -155,10 +169,12 @@ def _combine(turn: Turn) -> tuple[str, list]:
         parts.append(turn.nop.answer)
     if turn.dataapp is not None:
         parts.append(turn.dataapp.answer)
+    if turn.nm_live is not None:
+        parts.append(turn.nm_live.answer)
 
     if not parts:
         # Nothing useful from any path.
-        for sub in (turn.data, turn.concept, turn.nop, turn.dataapp):
+        for sub in (turn.data, turn.concept, turn.nop, turn.dataapp, turn.nm_live):
             if sub is not None:
                 return sub.answer, sources
         return "I couldn't find an answer to that.", sources

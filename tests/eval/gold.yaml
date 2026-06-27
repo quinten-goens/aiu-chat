@@ -81,10 +81,35 @@ cases:
     # require that it produces a grounded answer (ok), not a specific string.
     expect_answerable: true
 
-  - id: unanswerable_weather
+  # --- live sources (route + answerability; values change so no fixed number) ---
+
+  - id: route_dataapp_daily_country
+    question: "How many flights did France have on the latest available day?"
+    expected_route: dataapp
+    expect_answerable: true
+
+  - id: route_nm_live_airborne
+    question: "How many aircraft are airborne right now?"
+    expected_route: nm_live
+    expect_answerable: true
+
+  - id: route_nm_live_delays_now
+    question: "Which areas have the most network delay right now?"
+    expected_route: nm_live
+    expect_answerable: true
+
+  - id: route_data_not_live_for_history
+    question: "Which 5 states had the most CO2 emissions in 2024?"
+    # historical question must stay on the local data path, not a live API
+    expected_route: data
+    expected_text_in: "GERMANY"
+
+  - id: out_of_scope_weather_forecast
     question: "What will the weather be in Paris tomorrow?"
+    expected_route: none
     expect_answerable: false
 
-  - id: unanswerable_other_domain
+  - id: out_of_scope_other_domain
     question: "What is the GDP of Japan?"
+    expected_route: none
     expect_answerable: false

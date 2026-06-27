@@ -38,15 +38,19 @@ def _scalar_values(answer: DataAnswer):
     return [v for row in answer.result.dataframe.itertuples(index=False) for v in row]
 
 
-def score_case(case: dict, answer: DataAnswer) -> CaseResult:
+def score_case(case: dict, answer: DataAnswer, route: str | None = None) -> CaseResult:
     """Score one gold case against a produced DataAnswer. Pure / no I/O."""
     reasons: list[str] = []
+
+    # 0. Expected route (guards the router's classification).
+    if "expected_route" in case and route is not None and route != case["expected_route"]:
+        reasons.append(f"expected route {case['expected_route']!r}, got {route!r}")
 
     # 1. Answerability expectation.
     if case.get("expect_answerable") is False:
         if answer.ok:
             reasons.append("expected the model to decline, but it answered")
-        return CaseResult(case["id"], passed=not answer.ok, reasons=reasons)
+        return CaseResult(case["id"], passed=not answer.ok and not reasons, reasons=reasons)
 
     # For answerable cases, a non-ok answer is an automatic fail.
     if not answer.ok:
@@ -98,11 +102,12 @@ def load_cases(path: Path = GOLD_PATH) -> list[dict]:
     return data["cases"]
 
 
-def _run_case(question: str) -> DataAnswer:
+def _run_case(question: str) -> tuple[DataAnswer, str]:
     """Run a question through the full agent and adapt the result for scoring.
 
-    Imported lazily so importing the runner (e.g. for unit tests of score_case)
-    doesn't require the whole orchestrator graph. Charts are skipped for speed.
+    Returns (scoreable DataAnswer, route). Imported lazily so importing the
+    runner (e.g. for unit tests of score_case) doesn't require the whole
+    orchestrator graph. Charts are skipped for speed.
     """
     from aiu_chat.agent.orchestrator import answer
 
@@ -114,12 +119,20 @@ def _run_case(question: str) -> DataAnswer:
         # expected_text_in checks can see it.
         if turn.concept is not None and turn.concept.ok:
             turn.data.answer = turn.answer
-        return turn.data
+        return turn.data, turn.route
 
-    # Concept-only: synthesize a DataAnswer carrying the combined answer text.
-    ok = bool(turn.concept and turn.concept.ok)
-    return DataAnswer(
-        question=question, sql=None, result=None, answer=turn.answer, ok=ok
+    # Other paths (concept / nop / dataapp / catalog): synthesize a DataAnswer
+    # carrying the combined answer text and whether any sub-answer succeeded.
+    ok = bool(
+        (turn.concept and turn.concept.ok)
+        or (turn.nop and turn.nop.ok)
+        or (turn.dataapp and turn.dataapp.ok)
+        or (turn.nm_live and turn.nm_live.ok)
+        or turn.route == "catalog"
+    )
+    return (
+        DataAnswer(question=question, sql=None, result=None, answer=turn.answer, ok=ok),
+        turn.route,
     )
 
 
@@ -130,14 +143,14 @@ def run(quiet: bool = False, path: Path = GOLD_PATH) -> tuple[int, int]:
 
     for case in cases:
         try:
-            answer = _run_case(case["question"])
+            answer, route = _run_case(case["question"])
         except Exception as exc:  # model unreachable, etc.
             results.append(CaseResult(case["id"], passed=False, reasons=[f"error: {exc}"]))
             if not quiet:
                 print(f"  ERROR {case['id']}: {exc}")
             continue
 
-        res = score_case(case, answer)
+        res = score_case(case, answer, route=route)
         results.append(res)
         if not quiet:
             mark = "PASS" if res.passed else "FAIL"

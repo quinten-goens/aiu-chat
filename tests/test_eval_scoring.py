@@ -15,6 +15,20 @@ def _answer(sql=None, df=None, ok=True, answer="x"):
     return DataAnswer(question="q", sql=sql, result=result, answer=answer, ok=ok)
 
 
+def test_expected_route_matches_passes():
+    case = {"id": "r", "expected_route": "dataapp", "expect_answerable": True}
+    ans = _answer(answer="11968 flights", ok=True)
+    assert score_case(case, ans, route="dataapp").passed
+
+
+def test_expected_route_mismatch_fails():
+    case = {"id": "r", "expected_route": "dataapp", "expect_answerable": True}
+    ans = _answer(answer="...", ok=True)
+    res = score_case(case, ans, route="data")
+    assert not res.passed
+    assert "expected route" in res.reasons[0]
+
+
 def test_expected_value_within_tolerance_passes():
     case = {"id": "v", "expected_value": 100.0, "tolerance": 1.0}
     ans = _answer(sql="select 1", df=pd.DataFrame({"x": [100.4]}))
