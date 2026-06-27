@@ -1,0 +1,61 @@
+# Gold evaluation set for the text-to-SQL data path.
+#
+# Each case runs end-to-end through answer_data_question() against the real
+# ingested data, then checks the EXECUTED RESULT (deterministic) rather than the
+# narration prose (which varies run to run). Ground-truth values were taken from
+# the data as of ingestion (2010 through 2026-05); if you re-ingest, refresh
+# them or widen tolerances.
+#
+# Check types (any combination):
+#   expect_answerable: false   -> expects the model to decline (CANNOT_ANSWER)
+#   expected_value / tolerance -> a single scalar cell must match within tolerance
+#   expected_text_in           -> this substring must appear somewhere in the result
+#   sql_must_contain           -> list of substrings (case-insensitive) required in SQL
+#   sql_must_not_contain       -> list of substrings (case-insensitive) forbidden in SQL
+
+cases:
+  - id: top_state_co2_2024
+    question: "Which state had the highest CO2 emissions in 2024?"
+    expected_text_in: "UNITED KINGDOM"
+    sql_must_contain: ["sum", "2024"]
+
+  - id: top5_states_co2_2024
+    question: "Which 5 states had the most CO2 emissions in 2024?"
+    expected_text_in: "GERMANY"
+    sql_must_contain: ["sum", "limit"]
+
+  - id: total_co2_france_2023
+    question: "What were France's total CO2 emissions in tonnes in 2023?"
+    expected_value: 20404815.0
+    tolerance: 1.0          # rounding only
+    sql_must_contain: ["sum", "france"]
+    sql_must_not_contain: ["avg"]   # trap: CO2 is a monthly TOTAL, never average it
+
+  - id: total_flights_germany_2022
+    question: "How many IFR flights did Germany have in total in 2022?"
+    expected_value: 902063.0
+    tolerance: 1.0
+    sql_must_contain: ["sum"]
+
+  - id: distinct_states_2024
+    question: "How many distinct states are in the data for 2024?"
+    expected_value: 43
+    tolerance: 0
+
+  - id: earliest_year
+    question: "What is the earliest year covered by the CO2 data?"
+    expected_value: 2010
+    tolerance: 0
+
+  - id: per_flight_co2_uses_division
+    question: "What was the average CO2 per flight for Spain in 2024 (tonnes)?"
+    # per-flight = SUM(CO2)/SUM(TF); must NOT just average CO2_QTY_TONNES.
+    sql_must_contain: ["co2_qty_tonnes", "tf"]
+
+  - id: unanswerable_weather
+    question: "What will the weather be in Paris tomorrow?"
+    expect_answerable: false
+
+  - id: unanswerable_other_domain
+    question: "What is the GDP of Japan?"
+    expect_answerable: false
