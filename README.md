@@ -41,16 +41,25 @@ python -m aiu_chat.ingest.build_catalog
 
 ## Status
 
-Early development, built in vertical slices (see CLAUDE.md). Working today:
-single-dataset ingestion → typed Parquet + semantic catalog; a read-only,
-sandboxed text-to-SQL tool over DuckDB; and a CLI that answers data questions
-end-to-end via a local Ollama model (SQL generation + grounded narration).
+Early development, built in vertical slices (see CLAUDE.md).
+
+Working today: single-dataset ingestion → typed Parquet + semantic catalog; a
+read-only, sandboxed text-to-SQL tool over DuckDB; grounded narration via a local
+Ollama model; auto-generated Plotly charts from a validated chart spec; a gold
+evaluation set; a CLI; and a Streamlit web UI.
 
 Try it (after ingesting data and pulling a model):
 
 ```bash
+# web UI
+streamlit run app/streamlit_app.py
+
+# or the CLI
 aiu-chat-cli
 # you> which 5 states had the most CO2 emissions in 2024?
+
+# run the gold evaluation set against your local model
+python -m aiu_chat.eval.runner
 ```
 
 ## Tests

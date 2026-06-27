@@ -60,6 +60,36 @@ Data available through: {as_of}
 Write a short, grounded answer."""
 
 
+CHART_SYSTEM = """\
+You decide whether a query result should be charted, and if so, how. You output \
+ONLY a JSON object, nothing else.
+
+The JSON shape is:
+{
+  "show_chart": true | false,
+  "chart_type": "line" | "bar" | "area" | "scatter",
+  "x": "<a column name from the result>",
+  "y": ["<one or more numeric column names>"],
+  "series": "<optional column to split/colour by, or null>",
+  "title": "<short title>"
+}
+
+Guidance:
+- Set show_chart=false for a single number or a 1-row result.
+- Use "line" or "area" for time series, "bar" for rankings/comparisons across \
+categories, "scatter" for relationships between two numeric columns.
+- x, y, and series MUST be exact column names that appear in the result.
+"""
+
+CHART_USER_TEMPLATE = """\
+Question: {question}
+
+Result columns: {columns}
+First rows (JSON): {rows}
+
+Output the chart JSON."""
+
+
 def build_sql_messages(schema_text: str, question: str):
     from aiu_chat.agent.llm import Message
 
@@ -78,6 +108,20 @@ def build_answer_messages(question: str, sql: str, rows_json: str, as_of: str | 
             "user",
             ANSWER_USER_TEMPLATE.format(
                 question=question, sql=sql, rows=rows_json, as_of=as_of or "unknown"
+            ),
+        ),
+    ]
+
+
+def build_chart_messages(question: str, columns: list[str], rows_json: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", CHART_SYSTEM),
+        Message(
+            "user",
+            CHART_USER_TEMPLATE.format(
+                question=question, columns=", ".join(columns), rows=rows_json
             ),
         ),
     ]

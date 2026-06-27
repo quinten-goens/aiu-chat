@@ -26,6 +26,7 @@ class DataAnswer:
     result: SqlResult | None
     answer: str
     ok: bool  # True if a grounded answer was produced
+    chart_spec: dict | None = None  # LLM-emitted chart spec (validated at render time)
 
 
 def _clean_sql(raw: str) -> str:
@@ -51,6 +52,7 @@ def answer_data_question(
     *,
     client: OllamaClient | None = None,
     catalog: Catalog | None = None,
+    with_chart: bool = True,
 ) -> DataAnswer:
     client = client or OllamaClient()
     catalog = catalog or get_catalog()
@@ -96,9 +98,31 @@ def answer_data_question(
     )
     answer = client.chat(answer_messages, temperature=0.0)
 
+    # 4. Ask for a chart spec when the result is plausibly chart-worthy (>=2
+    # rows). Failures here never break the answer — charts are best-effort.
+    chart_spec = None
+    if with_chart and len(result.dataframe) >= 2:
+        chart_spec = _maybe_chart_spec(client, question, result.dataframe)
+
     return DataAnswer(
-        question=question, sql=result.sql, result=result, answer=answer.strip(), ok=True
+        question=question,
+        sql=result.sql,
+        result=result,
+        answer=answer.strip(),
+        ok=True,
+        chart_spec=chart_spec,
     )
+
+
+def _maybe_chart_spec(client, question, df):
+    """Best-effort chart spec from the model; None on any problem."""
+    try:
+        messages = prompts.build_chart_messages(
+            question, list(df.columns), _rows_to_json(df, max_rows=20)
+        )
+        return client.chat_json(messages, temperature=0.0)
+    except Exception:
+        return None  # charts are optional; never fail the answer over one
 
 
 def _rows_to_json(df: pd.DataFrame, max_rows: int = 100) -> str:

@@ -14,7 +14,6 @@ them to the live model.
 from __future__ import annotations
 
 import argparse
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -105,7 +104,9 @@ def run(quiet: bool = False, path: Path = GOLD_PATH) -> tuple[int, int]:
 
     for case in cases:
         try:
-            answer = answer_data_question(case["question"])
+            # Skip charts during eval — we score the executed result, and the
+            # extra chart-spec call would only slow the run.
+            answer = answer_data_question(case["question"], with_chart=False)
         except Exception as exc:  # model unreachable, etc.
             results.append(CaseResult(case["id"], passed=False, reasons=[f"error: {exc}"]))
             if not quiet:
