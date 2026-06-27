@@ -8,10 +8,10 @@ import sys
 
 from aiu_chat.agent.catalog import get_catalog
 from aiu_chat.agent.llm import OllamaClient, OllamaError
-from aiu_chat.agent.text_to_sql import answer_data_question
+from aiu_chat.agent.orchestrator import answer
 
 BANNER = """\
-AIU Chat (CLI) — ask a question about European ANS performance data.
+AIU Chat (CLI) — ask about European ANS performance (data + concepts).
 Type 'exit' or Ctrl-D to quit. Type 'sql' to toggle showing the generated SQL.
 """
 
@@ -29,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Available tables: {tables}\n")
 
     show_sql = True
+    history = []
     while True:
         try:
             question = input("you> ").strip()
@@ -45,19 +46,20 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         try:
-            ans = answer_data_question(question, client=client, catalog=catalog)
+            turn = answer(question, history=history, client=client, catalog=catalog)
         except OllamaError as exc:
             print(f"error: {exc}\n", file=sys.stderr)
             continue
 
-        if show_sql and ans.sql:
-            print(f"\n  SQL: {ans.sql}")
-        if ans.result is not None and not ans.result.dataframe.empty:
+        print(f"  (route: {turn.route})")
+        if show_sql and turn.data is not None and turn.data.sql:
+            print(f"  SQL: {turn.data.sql}")
+        if turn.data is not None and turn.data.result is not None \
+                and not turn.data.result.dataframe.empty:
             print()
-            print(ans.result.dataframe.head(20).to_string(index=False))
-            if ans.result.truncated:
-                print(f"  ... (truncated to {ans.result.row_count} rows)")
-        print(f"\nbot> {ans.answer}\n")
+            print(turn.data.result.dataframe.head(20).to_string(index=False))
+        print(f"\nbot> {turn.answer}\n")
+        history.append(turn)
 
 
 if __name__ == "__main__":

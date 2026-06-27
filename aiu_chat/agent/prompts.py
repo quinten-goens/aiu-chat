@@ -90,6 +90,35 @@ First rows (JSON): {rows}
 Output the chart JSON."""
 
 
+ROUTER_SYSTEM = """\
+You classify a user's question about European air navigation performance. Output \
+ONLY a JSON object: {"route": "data" | "concept" | "both"}.
+
+- "data": needs numbers from the datasets (counts, totals, averages, rankings, \
+trends, comparisons across states/airports/years).
+- "concept": asks what something means or how a metric is defined/computed \
+(definitions, acronyms, methodology).
+- "both": needs a number AND an explanation of a term/methodology.
+"""
+
+ROUTER_USER_TEMPLATE = """Question: {question}\n\nOutput the route JSON."""
+
+
+REWRITE_SYSTEM = """\
+You rewrite a possibly-elliptical follow-up question into a standalone question \
+using the conversation so far. Output ONLY the rewritten question text, nothing \
+else. If the question is already standalone, output it unchanged.
+"""
+
+REWRITE_USER_TEMPLATE = """\
+Conversation so far:
+{history}
+
+Follow-up question: {question}
+
+Rewrite it as a standalone question."""
+
+
 CONCEPT_SYSTEM = """\
 You answer conceptual questions about European air navigation performance using \
 ONLY the provided reference excerpts.
@@ -152,4 +181,22 @@ def build_concept_messages(question: str, excerpts: str):
     return [
         Message("system", CONCEPT_SYSTEM),
         Message("user", CONCEPT_USER_TEMPLATE.format(question=question, excerpts=excerpts)),
+    ]
+
+
+def build_router_messages(question: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", ROUTER_SYSTEM),
+        Message("user", ROUTER_USER_TEMPLATE.format(question=question)),
+    ]
+
+
+def build_rewrite_messages(history: str, question: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", REWRITE_SYSTEM),
+        Message("user", REWRITE_USER_TEMPLATE.format(history=history, question=question)),
     ]

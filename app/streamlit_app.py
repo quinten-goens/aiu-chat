@@ -14,7 +14,7 @@ from aiu_chat import config
 from aiu_chat.agent.catalog import get_catalog
 from aiu_chat.agent.chart import make_chart
 from aiu_chat.agent.llm import OllamaClient, OllamaError
-from aiu_chat.agent.text_to_sql import answer_data_question
+from aiu_chat.agent.orchestrator import answer
 
 st.set_page_config(page_title="AIU Chat", page_icon="✈️", layout="centered")
 
@@ -35,23 +35,31 @@ def _client():
     return OllamaClient()
 
 
-def _render_answer(ans):
-    """Render a DataAnswer: prose, optional chart, result table, and the SQL."""
-    st.markdown(ans.answer)
+def _render_turn(turn):
+    """Render a Turn: combined prose, optional chart + table + SQL, and sources."""
+    st.markdown(turn.answer)
 
-    if ans.result is not None and not ans.result.dataframe.empty:
-        df = ans.result.dataframe
+    data = turn.data
+    if data is not None and data.result is not None and not data.result.dataframe.empty:
+        df = data.result.dataframe
         # Chart first (if the spec is valid + chart-worthy), then the table.
-        fig = make_chart(ans.chart_spec, df)
+        fig = make_chart(data.chart_spec, df)
         if fig is not None:
             st.plotly_chart(fig, use_container_width=True)
         st.dataframe(df, use_container_width=True, hide_index=True)
-        if ans.result.truncated:
-            st.caption(f"Showing first {ans.result.row_count} rows.")
+        if data.result.truncated:
+            st.caption(f"Showing first {data.result.row_count} rows.")
+        if data.sql:
+            with st.expander("Show SQL"):
+                st.code(data.sql, language="sql")
 
-    if ans.sql:
-        with st.expander("Show SQL"):
-            st.code(ans.sql, language="sql")
+    if turn.sources:
+        seen = []
+        for s in turn.sources:
+            if s.source_url not in [u for _, u in seen]:
+                seen.append((s.source_title, s.source_url))
+        links = " · ".join(f"[{title}]({url})" for title, url in seen)
+        st.caption(f"Sources: {links}")
 
 
 def main():
@@ -72,15 +80,17 @@ def main():
         st.divider()
         st.caption(f"Model: `{config.MODEL_NAME}`")
 
-    # Chat history lives in session state.
+    # Chat history (Turn objects) lives in session state and feeds follow-ups.
     if "messages" not in st.session_state:
-        st.session_state.messages = []  # list of {"role", "content", "answer"?}
+        st.session_state.messages = []  # list of {"role", "content", "turn"?}
+    if "history" not in st.session_state:
+        st.session_state.history = []  # list of Turn
 
     # Replay history.
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            if msg["role"] == "assistant" and msg.get("answer") is not None:
-                _render_answer(msg["answer"])
+            if msg["role"] == "assistant" and msg.get("turn") is not None:
+                _render_turn(msg["turn"])
             else:
                 st.markdown(msg["content"])
 
@@ -91,16 +101,22 @@ def main():
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("Querying the data…"):
+            with st.spinner("Thinking…"):
                 try:
-                    ans = answer_data_question(prompt, client=_client(), catalog=catalog)
+                    turn = answer(
+                        prompt,
+                        history=st.session_state.history,
+                        client=_client(),
+                        catalog=catalog,
+                    )
                 except OllamaError as exc:
                     st.error(f"Could not reach the local model: {exc}")
-                    ans = None
-            if ans is not None:
-                _render_answer(ans)
+                    turn = None
+            if turn is not None:
+                _render_turn(turn)
+                st.session_state.history.append(turn)
                 st.session_state.messages.append(
-                    {"role": "assistant", "content": ans.answer, "answer": ans}
+                    {"role": "assistant", "content": turn.answer, "turn": turn}
                 )
 
     st.divider()
