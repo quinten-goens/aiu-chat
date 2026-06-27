@@ -41,14 +41,27 @@ python -m aiu_chat.ingest.build_catalog
 
 ## Status
 
-Early development, built in vertical slices (see CLAUDE.md).
+The full hybrid RAG agent works end-to-end on a single dataset (CO2 emissions by
+state) plus the reference docs. The main remaining work is breadth: registering
+the rest of the ~14 EUROCONTROL datasets (each is a `DatasetSpec` with semantic
+notes) and ingesting linked methodology PDFs for deeper concept answers.
 
-Working today: single-dataset ingestion → typed Parquet + semantic catalog; a
-read-only, sandboxed text-to-SQL tool over DuckDB; grounded narration via a local
-Ollama model; auto-generated Plotly charts from a validated chart spec; a gold
-evaluation set; a CLI; and a Streamlit web UI.
+Built in vertical slices (see CLAUDE.md).
 
-Try it (after ingesting data and pulling a model):
+Working today — the full hybrid agent:
+
+- **Data path:** read-only, sandboxed text-to-SQL over DuckDB/Parquet, with a
+  semantic catalog so the model respects units/granularity; grounded narration.
+- **Concept path:** vector retrieval (DuckDB VSS) over scraped reference pages,
+  answered strictly from the excerpts with sources.
+- **Router + orchestrator:** classifies each question (data / concept / both),
+  rewrites follow-ups into standalone questions, and combines results.
+- **Charts:** auto Plotly charts from a validated LLM chart spec.
+- **Trustworthiness:** a gold eval set, schema-drift checks, and a scheduled
+  refresh script.
+- **Interfaces:** a CLI and a Streamlit web UI.
+
+Try it (after ingesting data and pulling models):
 
 ```bash
 # web UI
@@ -57,10 +70,24 @@ streamlit run app/streamlit_app.py
 # or the CLI
 aiu-chat-cli
 # you> which 5 states had the most CO2 emissions in 2024?
+# you> what about 2020?            (follow-ups work)
+# you> what does ATFM stand for?   (concept questions work)
 
 # run the gold evaluation set against your local model
 python -m aiu_chat.eval.runner
 ```
+
+## Refresh (scheduled)
+
+Re-download data, rebuild the catalog (fails loudly on schema drift), and rebuild
+the document index in one command:
+
+```bash
+bash scripts/refresh.sh
+```
+
+To run monthly via launchd on macOS, see
+`scripts/com.aiuchat.refresh.plist.example`.
 
 ## Tests
 

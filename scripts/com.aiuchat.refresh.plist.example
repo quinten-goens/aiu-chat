@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job to refresh AIU Chat data monthly (1st of the month, 04:00).
+
+  Setup:
+    1. Edit the two REPLACE_ME paths below to your repo location.
+    2. Copy to ~/Library/LaunchAgents/com.aiuchat.refresh.plist
+    3. launchctl load ~/Library/LaunchAgents/com.aiuchat.refresh.plist
+
+  Check logs in the StandardOut/StandardError paths below.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aiuchat.refresh</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>REPLACE_ME/aiu-chat/scripts/refresh.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Day</key><integer>1</integer>
+        <key>Hour</key><integer>4</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>REPLACE_ME/aiu-chat/data/refresh.log</string>
+    <key>StandardErrorPath</key>
+    <string>REPLACE_ME/aiu-chat/data/refresh.err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
