@@ -35,16 +35,25 @@ def _parquet_columns(con: duckdb.DuckDBPyConnection, parquet_path: Path) -> list
 
 def _as_of(con: duckdb.DuckDBPyConnection, parquet_path: Path, columns: list[str]) -> str | None:
     """Best-effort 'data as-of' date for the dataset."""
-    if "FLIGHT_MONTH" in columns:
-        (val,) = con.execute(
-            "SELECT MAX(FLIGHT_MONTH) FROM read_parquet(?)", [str(parquet_path)]
-        ).fetchone()
-        return str(val) if val is not None else None
-    if "YEAR" in columns and "MONTH" in columns:
+    # A dedicated date column, if present (most precise).
+    for date_col in ("FLIGHT_MONTH", "FLT_DATE", "ENTRY_DATE", "ENTITY_DATE"):
+        if date_col in columns:
+            (val,) = con.execute(
+                f"SELECT MAX({date_col}) FROM read_parquet(?)", [str(parquet_path)]
+            ).fetchone()
+            if val is not None:
+                return str(val)[:10]  # YYYY-MM-DD (drop any time part)
+    # Otherwise derive from YEAR + a month column. Take the month at the max
+    # year so a partial latest year reports the right month.
+    month_col = next((c for c in ("MONTH", "MONTH_NUM") if c in columns), None)
+    if "YEAR" in columns and month_col:
         row = con.execute(
-            "SELECT MAX(YEAR), MAX(MONTH) FROM read_parquet(?)", [str(parquet_path)]
+            f"SELECT MAX(YEAR), MAX({month_col}) FILTER (WHERE YEAR = "
+            f"(SELECT MAX(YEAR) FROM read_parquet(?))) FROM read_parquet(?)",
+            [str(parquet_path), str(parquet_path)],
         ).fetchone()
-        return f"{row[0]}-{row[1]:02d}" if row[0] is not None else None
+        if row[0] is not None:
+            return f"{row[0]}-{int(row[1]):02d}"
     return None
 
 

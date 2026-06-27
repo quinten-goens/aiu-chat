@@ -52,6 +52,23 @@ cases:
     # per-flight = SUM(CO2)/SUM(TF); must NOT just average CO2_QTY_TONNES.
     sql_must_contain: ["co2_qty_tonnes", "tf"]
 
+  # --- multi-dataset cases (added with the full dataset registry) ---
+
+  - id: top_airport_movements_2024
+    question: "Which airport had the most total flight movements in 2024?"
+    expected_text_in: "Istanbul"
+    sql_must_contain: ["airport_traffic", "sum"]
+
+  - id: enroute_weather_delay_2023
+    question: "What was the total en-route ATFM delay caused by weather across all ANSPs in 2023, in minutes?"
+    # must use the weather cause code DLY_ERT_W_1, not the total DLY_ERT_1
+    sql_must_contain: ["dly_ert_w_1", "sum"]
+
+  - id: taxi_out_per_flight_division
+    question: "Which airport had the worst average additional taxi-out time per flight in 2024?"
+    # per-flight additional time must divide by the reference flight count
+    sql_must_contain: ["total_add_time_min", "total_ref_nb_fl"]
+
   - id: unanswerable_weather
     question: "What will the weather be in Paris tomorrow?"
     expect_answerable: false
