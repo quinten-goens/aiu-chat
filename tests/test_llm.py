@@ -24,10 +24,13 @@ def test_chat_returns_content(mock_post):
     client = OllamaClient(host="http://x", model="m")
     out = client.chat([Message("user", "hi")])
     assert out == "hello"
-    # temperature 0 + correct endpoint
+    # temperature 0 + correct endpoint + perf-critical options
     args, kwargs = mock_post.call_args
     assert args[0].endswith("/api/chat")
-    assert kwargs["json"]["options"]["temperature"] == 0.0
+    body = kwargs["json"]
+    assert body["options"]["temperature"] == 0.0
+    assert body["options"]["num_ctx"] == 8192  # capped context (avoids 256K blowup)
+    assert body["think"] is False  # thinking off by default (avoids multi-min stalls)
 
 
 @patch("aiu_chat.agent.llm.requests.post")

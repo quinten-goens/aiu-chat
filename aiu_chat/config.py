@@ -20,6 +20,15 @@ CATALOG_PATH = Path(os.getenv("AIU_CATALOG_PATH", DATA_DIR / "catalog.json"))
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_NAME = os.getenv("AIU_MODEL_NAME", "qwen3.5:9b")
 EMBEDDING_MODEL = os.getenv("AIU_EMBEDDING_MODEL", "nomic-embed-text")
+# Context window cap. Some models default to a 256K context that inflates memory
+# to ~20GB and slows generation dramatically; our prompts are small.
+OLLAMA_NUM_CTX = int(os.getenv("AIU_OLLAMA_NUM_CTX", "8192"))
+# HTTP timeout (seconds). Generous to absorb a cold model load on first request.
+OLLAMA_TIMEOUT = int(os.getenv("AIU_OLLAMA_TIMEOUT", "180"))
+# Disable "thinking" mode for reasoning models (e.g. qwen3.5). Our prompts do the
+# reasoning scaffolding; hidden chain-of-thought adds minutes per query for no
+# benefit on deterministic SQL/JSON generation. Set to "1"/"true" to re-enable.
+OLLAMA_THINK = os.getenv("AIU_OLLAMA_THINK", "false").lower() in ("1", "true", "yes")
 
 # --- Retrieval -------------------------------------------------------------
 TOP_K = int(os.getenv("AIU_TOP_K", "5"))

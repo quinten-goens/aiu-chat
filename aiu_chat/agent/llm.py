@@ -32,12 +32,21 @@ class OllamaClient:
         host: str | None = None,
         model: str | None = None,
         embedding_model: str | None = None,
-        timeout: int = 120,
+        timeout: int | None = None,
+        num_ctx: int | None = None,
+        think: bool | None = None,
     ):
         self.host = (host or config.OLLAMA_HOST).rstrip("/")
         self.model = model or config.MODEL_NAME
         self.embedding_model = embedding_model or config.EMBEDDING_MODEL
-        self.timeout = timeout
+        self.timeout = timeout or config.OLLAMA_TIMEOUT
+        # Cap the context window. Some models (e.g. qwen3.5:9b) default to a huge
+        # 256K context, which inflates memory to ~20GB and makes generation crawl.
+        # Our prompts are small, so a modest window is much faster.
+        self.num_ctx = num_ctx or config.OLLAMA_NUM_CTX
+        # Reasoning models burn minutes on hidden chain-of-thought per call;
+        # disabled by default for deterministic SQL/JSON generation.
+        self.think = config.OLLAMA_THINK if think is None else think
 
     # --- chat --------------------------------------------------------------
     def chat(
@@ -56,7 +65,8 @@ class OllamaClient:
             "model": self.model,
             "messages": [m.as_dict() for m in messages],
             "stream": False,
-            "options": {"temperature": temperature},
+            "think": self.think,
+            "options": {"temperature": temperature, "num_ctx": self.num_ctx},
         }
         if json_mode:
             payload["format"] = "json"

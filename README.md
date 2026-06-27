@@ -41,11 +41,30 @@ python -m aiu_chat.ingest.build_catalog
 
 ## Status
 
-Early development. Built in vertical slices (see CLAUDE.md). Current milestone:
-single-dataset ingestion + a read-only, sandboxed text-to-SQL tool over DuckDB.
+Early development, built in vertical slices (see CLAUDE.md). Working today:
+single-dataset ingestion → typed Parquet + semantic catalog; a read-only,
+sandboxed text-to-SQL tool over DuckDB; and a CLI that answers data questions
+end-to-end via a local Ollama model (SQL generation + grounded narration).
+
+Try it (after ingesting data and pulling a model):
+
+```bash
+aiu-chat-cli
+# you> which 5 states had the most CO2 emissions in 2024?
+```
 
 ## Tests
 
 ```bash
 pytest
 ```
+
+## Troubleshooting
+
+- **First request hangs / times out.** Reasoning models (e.g. `qwen3.5`) default
+  to "thinking" mode and can spend minutes on hidden chain-of-thought. This app
+  disables it by default (`AIU_OLLAMA_THINK=false`); ensure you're on a build
+  that sends `think: false`.
+- **High memory / slow generation.** Some models default to a 256K context
+  (~20 GB). This app caps it (`AIU_OLLAMA_NUM_CTX=8192`). Check with `ollama ps`.
+- **Wrong model tag.** Set `AIU_MODEL_NAME` in `.env` to match `ollama list`.
