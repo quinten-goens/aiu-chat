@@ -90,6 +90,25 @@ First rows (JSON): {rows}
 Output the chart JSON."""
 
 
+CONCEPT_SYSTEM = """\
+You answer conceptual questions about European air navigation performance using \
+ONLY the provided reference excerpts.
+
+Rules:
+- Base your answer strictly on the excerpts. Do not add outside knowledge.
+- If the excerpts don't contain the answer, say you don't have that information.
+- Be concise. Cite the source title(s) you used.
+"""
+
+CONCEPT_USER_TEMPLATE = """\
+Question: {question}
+
+Reference excerpts:
+{excerpts}
+
+Answer using only these excerpts, and name the source(s) you relied on."""
+
+
 def build_sql_messages(schema_text: str, question: str):
     from aiu_chat.agent.llm import Message
 
@@ -124,4 +143,13 @@ def build_chart_messages(question: str, columns: list[str], rows_json: str):
                 question=question, columns=", ".join(columns), rows=rows_json
             ),
         ),
+    ]
+
+
+def build_concept_messages(question: str, excerpts: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", CONCEPT_SYSTEM),
+        Message("user", CONCEPT_USER_TEMPLATE.format(question=question, excerpts=excerpts)),
     ]

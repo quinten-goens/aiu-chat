@@ -32,6 +32,10 @@ OLLAMA_THINK = os.getenv("AIU_OLLAMA_THINK", "false").lower() in ("1", "true", "
 
 # --- Retrieval -------------------------------------------------------------
 TOP_K = int(os.getenv("AIU_TOP_K", "5"))
+# Embedding vector dimension (nomic-embed-text = 768). Must match the model.
+EMBEDDING_DIM = int(os.getenv("AIU_EMBEDDING_DIM", "768"))
+# Minimum similarity (cosine) for a retrieved chunk to be considered relevant.
+MIN_SIMILARITY = float(os.getenv("AIU_MIN_SIMILARITY", "0.4"))
 
 # --- Safety / limits -------------------------------------------------------
 # Hard cap on rows a generated query may return (also nudges the model to
