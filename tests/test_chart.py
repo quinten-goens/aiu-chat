@@ -76,3 +76,17 @@ def test_build_figure_produces_plotly_object():
 
 def test_make_chart_endtoend_none_on_bad_spec():
     assert make_chart({"show_chart": True, "chart_type": "bad"}, DF) is None
+
+
+def test_multi_y_bar_is_grouped_with_one_trace_per_measure():
+    # arrivals vs departures as two measures -> two grouped traces (not stacked,
+    # not a time column abused as a legend).
+    df = pd.DataFrame(
+        {"YEAR": [2016, 2017, 2018], "DEPARTURES": [10, 11, 12], "ARRIVALS": [10, 11, 13]}
+    )
+    spec = {"show_chart": True, "chart_type": "bar", "x": "YEAR",
+            "y": ["DEPARTURES", "ARRIVALS"]}
+    fig = make_chart(spec, df)
+    assert fig is not None
+    assert fig.layout.barmode == "group"
+    assert sorted(t.name for t in fig.data) == ["ARRIVALS", "DEPARTURES"]

@@ -72,11 +72,18 @@ def build_figure(spec: ChartSpec, df: pd.DataFrame):
     kwargs = {"x": spec.x, "title": spec.title}
     # With a series column we colour by it and use the first y; otherwise y can
     # be one or more columns.
+    multi_y = False
     if spec.series:
         kwargs["y"] = spec.y[0]
         kwargs["color"] = spec.series
     else:
-        kwargs["y"] = spec.y[0] if len(spec.y) == 1 else spec.y
+        multi_y = len(spec.y) > 1
+        kwargs["y"] = spec.y if multi_y else spec.y[0]
+
+    # Multiple measures or a series on a bar chart should sit side by side, not
+    # stacked, so e.g. arrivals vs departures are comparable per category.
+    if spec.chart_type == "bar" and (multi_y or spec.series):
+        kwargs["barmode"] = "group"
 
     fn = {
         "line": px.line,
@@ -84,7 +91,11 @@ def build_figure(spec: ChartSpec, df: pd.DataFrame):
         "area": px.area,
         "scatter": px.scatter,
     }[spec.chart_type]
-    return fn(df, **kwargs)
+    fig = fn(df, **kwargs)
+    # A cleaner legend title when plotting multiple y columns.
+    if multi_y:
+        fig.update_layout(legend_title_text="")
+    return fig
 
 
 def make_chart(spec: dict | None, df: pd.DataFrame):

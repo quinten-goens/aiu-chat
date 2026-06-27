@@ -19,6 +19,18 @@ column or table names.
 is already an average; never treat a monthly total as a per-flight figure.
 - Prefer aggregation over dumping raw rows. Add ORDER BY and LIMIT when the user \
 asks for "top"/"most"/"least".
+- Match the requested TIME GRANULARITY exactly. Datasets are usually monthly with \
+YEAR + MONTH_NUM columns (and sometimes FLT_DATE):
+    * "by year" / "yearly" / "annual" / "per year" -> GROUP BY YEAR only (do NOT \
+also group by MONTH_NUM — that would give 12 rows per year).
+    * "by month" / "monthly" -> GROUP BY YEAR, MONTH_NUM; ORDER BY YEAR, MONTH_NUM.
+    * "by day" / "daily" -> GROUP BY FLT_DATE if available.
+  If an explicit granularity word (yearly/monthly/daily) is present, it WINS over \
+a vague phrase like "over time". E.g. "yearly traffic over time" means GROUP BY \
+YEAR only.
+- When the user wants two measures compared (e.g. arrivals AND departures), \
+return them as TWO separate aggregated columns in the same row, not as separate \
+rows.
 - If the question cannot be answered from these tables, output exactly: \
 SELECT 'CANNOT_ANSWER' AS note
 """
@@ -83,6 +95,13 @@ Guidance:
 - Use "line" or "area" for time series, "bar" for rankings/comparisons across \
 categories, "scatter" for relationships between two numeric columns.
 - x, y, and series MUST be exact column names that appear in the result.
+- To compare TWO (or more) numeric measures (e.g. departures AND arrivals), put \
+BOTH in the y list: "y": ["DEPARTURES", "ARRIVALS"]. Do NOT use "series" for this.
+- "series" is ONLY for a single categorical column whose distinct values become \
+the coloured groups. NEVER use a time component (YEAR, MONTH_NUM, MONTH_MON, \
+FLT_DATE) as the series — that produces a nonsensical legend. The time/category \
+column belongs on x.
+- For a yearly bar chart, x should be YEAR (one bar group per year).
 """
 
 CHART_USER_TEMPLATE = """\
@@ -95,9 +114,10 @@ Output the chart JSON."""
 
 CHART_FORCE_NOTE = (
     "\nThe user explicitly asked for a chart, so you MUST set show_chart=true and "
-    "pick the chart_type/x/y/series that best matches their request (e.g. group "
-    "arrivals vs departures with a 'series' column if they ask for separate "
-    "coloured bars).\n"
+    "pick the chart_type/x/y/series that best matches their request. If they ask "
+    "to see two measures separately (e.g. arrivals AND departures), put both "
+    'column names in the y list (e.g. "y": ["DEPARTURES", "ARRIVALS"]) — do not '
+    "put a time column in series.\n"
 )
 
 
