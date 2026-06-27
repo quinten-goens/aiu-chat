@@ -39,6 +39,11 @@ def test_route_defaults_to_data_on_garbage():
     assert route_question("q", FakeClient(json_obj={"route": "nonsense"})) == "data"
 
 
+def test_route_accepts_new_sources():
+    for r in ("nop", "dataapp"):
+        assert route_question("q", FakeClient(json_obj={"route": r})) == r
+
+
 # --- follow-up rewriting ---------------------------------------------------
 
 def test_rewrite_noop_without_history():
@@ -93,3 +98,29 @@ def test_concept_route_only_concept():
         turn = answer("what is ATFM?", client=client, catalog=object())
     md.assert_not_called()
     assert "ASMA is" in turn.answer
+
+
+def test_nop_route_dispatches_to_nop():
+    from aiu_chat.agent.nop_answer import NopAnswer
+    client = FakeClient(json_obj={"route": "nop"})
+    with patch.object(orch, "answer_nop_question",
+                      return_value=NopAnswer("q", "storms on the network", ok=True)) as mn, \
+         patch.object(orch, "answer_data_question") as md:
+        turn = answer("any weather warnings now?", client=client, catalog=object())
+    mn.assert_called_once()
+    md.assert_not_called()
+    assert turn.route == "nop"
+    assert "storms" in turn.answer
+
+
+def test_dataapp_route_dispatches_to_dataapp():
+    from aiu_chat.agent.dataapp_answer import DataAppAnswer
+    client = FakeClient(json_obj={"route": "dataapp"})
+    with patch.object(orch, "answer_dataapp_question",
+                      return_value=DataAppAnswer("q", "11968 flights today", ok=True)) as mda, \
+         patch.object(orch, "answer_data_question") as md:
+        turn = answer("flights in France today?", client=client, catalog=object())
+    mda.assert_called_once()
+    md.assert_not_called()
+    assert turn.route == "dataapp"
+    assert "11968" in turn.answer

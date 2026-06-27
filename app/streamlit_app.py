@@ -57,6 +57,19 @@ def _render_turn(turn, idx):
             with st.expander("Show SQL"):
                 st.code(data.sql, language="sql")
 
+    # Live NOP messages: show the underlying messages in an expander.
+    if turn.nop is not None and turn.nop.messages:
+        with st.expander(f"NOP messages ({len(turn.nop.messages)})"):
+            for m in turn.nop.messages:
+                st.markdown(f"**{m.type}** · {m.published}")
+                st.text(m.text[:1500])
+        st.caption("Source: EUROCONTROL Network Operations Portal (live)")
+
+    # Live Data App figures: note the entity + as-of date.
+    if turn.dataapp is not None and turn.dataapp.result is not None:
+        r = turn.dataapp.result
+        st.caption(f"Source: EUROCONTROL Data App — {r.metric} for {r.entity.name}, as of {r.sync_date}")
+
     if turn.sources:
         seen = []
         for s in turn.sources:

@@ -18,6 +18,7 @@ dependencies = [
     "lxml>=5.0.0",
     "pyyaml>=6.0",            # gold eval set
     "pypdf>=4.0.0",          # PDF text extraction
+    "python-dotenv>=1.0.0",  # load credentials from .env
 ]
 
 [project.optional-dependencies]

@@ -123,13 +123,28 @@ CHART_FORCE_NOTE = (
 
 ROUTER_SYSTEM = """\
 You classify a user's question about European air navigation performance. Output \
-ONLY a JSON object: {"route": "data" | "concept" | "both"}.
+ONLY a JSON object: {"route": "data" | "concept" | "both" | "nop" | "dataapp"}.
 
-- "data": needs numbers from the datasets (counts, totals, averages, rankings, \
-trends, comparisons across states/airports/years).
-- "concept": asks what something means or how a metric is defined/computed \
+- "data": HISTORICAL monthly figures from the local datasets (counts, totals, \
+averages, rankings, trends, comparisons across states/airports/years/months). \
+This is the default for most quantitative questions.
+- "concept": asks what something MEANS or how a metric is defined/computed \
 (definitions, acronyms, methodology).
-- "both": needs a number AND an explanation of a term/methodology.
+- "both": needs a historical number AND an explanation of a term/methodology.
+- "nop": about NETWORK OPERATIONS PORTAL (NOP) messages/updates — operational \
+situation, weather/CB advisories, regulations, tactical updates, "what's \
+happening on the network".
+- "dataapp": asks for CURRENT / TODAY / live near-real-time figures (today, this \
+week, year-to-date) of traffic, ATFM delay, CO2, or punctuality for a specific \
+country, airport, ANSP, or airline.
+
+Prefer "data" for any historical/by-year/by-month question; use "dataapp" only \
+when the question is clearly about the current/live situation.
+
+A question that asks for a value computed FROM the datasets — including the \
+earliest/latest year, a count of rows/states, a min/max, or coverage of a \
+specific metric — is "data", even if it mentions "the data" or a dataset name. \
+"concept" is only for what a TERM or METHODOLOGY means.
 """
 
 ROUTER_USER_TEMPLATE = """Question: {question}\n\nOutput the route JSON."""
@@ -154,6 +169,65 @@ Conversation so far:
 Follow-up question: {question}
 
 Rewrite it as a standalone question."""
+
+
+DATAAPP_EXTRACT_SYSTEM = """\
+You translate a question into a EUROCONTROL Data App API request. Output ONLY a \
+JSON object, nothing else:
+{
+  "metric": "traffic" | "delay" | "co2" | "punctuality",
+  "entity_kind": "country" | "airport" | "ansp" | "aircraft_operator",
+  "entity": "<the name or code, e.g. 'France', 'EGLL', 'DSNA'>"
+}
+
+- "traffic" = number of flights; "delay" = ATFM delay; "co2" = CO2 emissions; \
+"punctuality" = on-time performance.
+- Use entity_kind "country" for a state/country, "airport" for an airport (use \
+its ICAO code if given), "ansp" for an air navigation service provider, \
+"aircraft_operator" for an airline.
+- This API serves CURRENT/near-real-time figures (today, this week, year-to-date).
+- If the question cannot be mapped to one of these, output {"metric": null}.
+"""
+
+DATAAPP_EXTRACT_USER = """Question: {question}\n\nOutput the request JSON."""
+
+DATAAPP_ANSWER_SYSTEM = """\
+You answer using live EUROCONTROL Data App figures provided as JSON records.
+
+Each record has: networkType (total/avg), dateRange (DY=today, WK=this week, \
+Y2D=year-to-date), and value or avgValue. Quote the relevant figures; do not \
+invent numbers. Lead with the direct answer and mention the data date.
+"""
+
+DATAAPP_ANSWER_USER = """\
+Question: {question}
+
+Metric: {metric} for {entity} (as of {sync_date})
+Records (JSON): {records}
+
+Write a short, grounded answer."""
+
+
+NOP_SYSTEM = """\
+You answer questions about EUROCONTROL Network Operations Portal (NOP) messages, \
+using ONLY the provided NOP message(s).
+
+Rules:
+- Base your answer strictly on the message content. Do not invent details.
+- NOP messages use aviation shorthand (CB = cumulonimbus, ISOL = isolated, CLST \
+= clustered, FL = flight level, ATFM, FIR, etc.) — interpret it plainly for the \
+user.
+- Note the message type and publish time when relevant.
+- If the messages don't address the question, say so briefly.
+"""
+
+NOP_USER_TEMPLATE = """\
+Question: {question}
+
+NOP messages (newest first):
+{messages}
+
+Answer using only these messages."""
 
 
 CONCEPT_SYSTEM = """\
@@ -224,6 +298,39 @@ def build_concept_messages(question: str, excerpts: str):
     return [
         Message("system", CONCEPT_SYSTEM),
         Message("user", CONCEPT_USER_TEMPLATE.format(question=question, excerpts=excerpts)),
+    ]
+
+
+def build_nop_messages(question: str, messages_text: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", NOP_SYSTEM),
+        Message("user", NOP_USER_TEMPLATE.format(question=question, messages=messages_text)),
+    ]
+
+
+def build_dataapp_extract_messages(question: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", DATAAPP_EXTRACT_SYSTEM),
+        Message("user", DATAAPP_EXTRACT_USER.format(question=question)),
+    ]
+
+
+def build_dataapp_answer_messages(question, metric, entity, sync_date, records_json):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", DATAAPP_ANSWER_SYSTEM),
+        Message(
+            "user",
+            DATAAPP_ANSWER_USER.format(
+                question=question, metric=metric, entity=entity,
+                sync_date=sync_date, records=records_json,
+            ),
+        ),
     ]
 
 

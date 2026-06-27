@@ -59,8 +59,17 @@ Working today — the full hybrid agent:
 - **Concept path:** vector retrieval (DuckDB VSS) over scraped reference pages
   and ingested PDFs, plus an exact acronym lookup; answered strictly from the
   retrieved excerpts with sources.
-- **Router + orchestrator:** classifies each question (data / concept / both),
-  rewrites follow-ups into standalone questions, and combines results.
+- **NOP path (live):** queries EUROCONTROL Network Operations Portal message
+  updates from PocketBase per question, strips the HTML, and interprets the
+  operational/weather content. Needs `PB_NOP_*` credentials in `.env`.
+- **Data App path (live):** answers current/near-real-time traffic, ATFM delay,
+  CO2, and punctuality for a country/airport/ANSP/airline via the EUROCONTROL
+  Data App API. A deterministic resolver handles the API's 3-hop pattern
+  (name→id→sync→metric); the model only picks the metric and entity. See
+  [docs/dataapp_api.md](docs/dataapp_api.md).
+- **Router + orchestrator:** classifies each question (data / concept / both /
+  nop / dataapp), rewrites follow-ups into standalone questions, and combines
+  results. Historical figures → data; current/live → dataapp.
 - **Charts:** auto Plotly charts from a validated LLM chart spec.
 - **Trustworthiness:** a gold eval set, schema-drift checks, and a scheduled
   refresh script.

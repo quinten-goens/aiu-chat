@@ -13,12 +13,14 @@ from dataclasses import dataclass, field
 from aiu_chat.agent import prompts
 from aiu_chat.agent.catalog import Catalog, get_catalog
 from aiu_chat.agent.concept import ConceptAnswer, answer_concept_question
+from aiu_chat.agent.dataapp_answer import DataAppAnswer, answer_dataapp_question
 from aiu_chat.agent.llm import OllamaClient
+from aiu_chat.agent.nop_answer import NopAnswer, answer_nop_question
 from aiu_chat.agent.text_to_sql import DataAnswer, answer_data_question
 
 logger = logging.getLogger("aiu_chat.agent")
 
-VALID_ROUTES = {"data", "concept", "both"}
+VALID_ROUTES = {"data", "concept", "both", "nop", "dataapp"}
 
 # Questions about what data/reports the system holds — answer from the catalog.
 _AVAILABILITY_RE = re.compile(
@@ -42,6 +44,8 @@ class Turn:
     route: str
     data: DataAnswer | None = None
     concept: ConceptAnswer | None = None
+    nop: NopAnswer | None = None
+    dataapp: DataAppAnswer | None = None
     answer: str = ""
     sources: list = field(default_factory=list)
 
@@ -122,6 +126,16 @@ def answer(
             turn.concept.ok,
             [s.source_title for s in turn.concept.sources],
         )
+    if route == "nop":
+        turn.nop = answer_nop_question(standalone, client=client)
+        logger.info("  nop ok=%s messages=%d", turn.nop.ok, len(turn.nop.messages))
+    if route == "dataapp":
+        turn.dataapp = answer_dataapp_question(standalone, client=client)
+        logger.info(
+            "  dataapp ok=%s entity=%s",
+            turn.dataapp.ok,
+            turn.dataapp.result.entity.name if turn.dataapp.result else None,
+        )
 
     turn.answer, turn.sources = _combine(turn)
     return turn
@@ -137,13 +151,16 @@ def _combine(turn: Turn) -> tuple[str, list]:
         sources.extend(turn.concept.sources)
     if turn.data is not None:
         parts.append(turn.data.answer)
+    if turn.nop is not None:
+        parts.append(turn.nop.answer)
+    if turn.dataapp is not None:
+        parts.append(turn.dataapp.answer)
 
     if not parts:
-        # Nothing useful from either path.
-        if turn.data is not None:
-            return turn.data.answer, sources
-        if turn.concept is not None:
-            return turn.concept.answer, sources
+        # Nothing useful from any path.
+        for sub in (turn.data, turn.concept, turn.nop, turn.dataapp):
+            if sub is not None:
+                return sub.answer, sources
         return "I couldn't find an answer to that.", sources
 
     return "\n\n".join(parts), sources

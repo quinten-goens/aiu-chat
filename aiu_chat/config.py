@@ -11,6 +11,15 @@ from pathlib import Path
 # --- Paths -----------------------------------------------------------------
 # Repo root = two levels up from this file (aiu_chat/config.py -> repo/).
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Load a local .env if present so credentials (e.g. NOP) are picked up without a
+# manual export. Real environment variables take precedence (override=False).
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(REPO_ROOT / ".env", override=False)
+except ImportError:
+    pass
 DATA_DIR = Path(os.getenv("AIU_DATA_DIR", REPO_ROOT / "data"))
 PARQUET_DIR = Path(os.getenv("AIU_PARQUET_DIR", DATA_DIR / "parquet"))
 DUCKDB_PATH = Path(os.getenv("AIU_DUCKDB_PATH", DATA_DIR / "aiu.duckdb"))
@@ -43,6 +52,19 @@ MIN_SIMILARITY = float(os.getenv("AIU_MIN_SIMILARITY", "0.5"))
 # Hard cap on rows a generated query may return (also nudges the model to
 # aggregate rather than dump raw rows).
 MAX_RESULT_ROWS = int(os.getenv("AIU_MAX_RESULT_ROWS", "5000"))
+
+# --- NOP content (PocketBase) ----------------------------------------------
+PB_NOP_URL = os.getenv("PB_NOP_URL", "https://aiu-nop.pockethost.io").rstrip("/")
+PB_NOP_USER_EMAIL = os.getenv("PB_NOP_USER_EMAIL", "")
+PB_NOP_USER_PASSWORD = os.getenv("PB_NOP_USER_PASSWORD", "")
+
+# --- EUROCONTROL Data App API ----------------------------------------------
+DATAAPP_BASE = os.getenv("AIU_DATAAPP_BASE", "https://api-data-app.eurocontrol.int/api").rstrip("/")
+
+
+def nop_configured() -> bool:
+    """True if NOP PocketBase credentials are present."""
+    return bool(PB_NOP_USER_EMAIL and PB_NOP_USER_PASSWORD)
 
 
 def ensure_dirs() -> None:
