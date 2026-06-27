@@ -240,17 +240,26 @@ def main():
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking… (choosing a source and gathering data)"):
-                try:
-                    turn = answer(
-                        prompt,
-                        history=st.session_state.history,
-                        client=_client(tier),
-                        catalog=catalog,
-                    )
-                except OllamaError as exc:
-                    st.error(f"Could not reach the local model: {exc}")
-                    turn = None
+            status_box = st.status("Thinking…", expanded=True)
+
+            def _on_status(label, detail=None):
+                status_box.update(label=label)
+                if detail:
+                    status_box.write(detail)
+
+            try:
+                turn = answer(
+                    prompt,
+                    history=st.session_state.history,
+                    client=_client(tier),
+                    catalog=catalog,
+                    on_status=_on_status,
+                )
+                status_box.update(label="Done", state="complete", expanded=False)
+            except OllamaError as exc:
+                status_box.update(label="Failed", state="error")
+                st.error(f"Could not reach the local model: {exc}")
+                turn = None
             if turn is not None:
                 # This turn will occupy the next message slot; key by that index.
                 _render_turn(turn, idx=len(st.session_state.messages))

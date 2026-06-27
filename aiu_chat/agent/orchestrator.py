@@ -91,30 +91,72 @@ def route_question(question: str, client: OllamaClient) -> str:
         return "data"  # default to the data path if routing fails
 
 
+# What each route is doing while it works — shown live in the UI status.
+_ROUTE_STATUS = {
+    "data": "Querying the datasets…",
+    "both": "Querying the data and reference docs…",
+    "concept": "Searching the reference docs & PDFs…",
+    "nop": "Fetching NOP messages…",
+    "dataapp": "Looking up the latest daily figures…",
+    "nm_live": "Fetching the live network snapshot…",
+}
+
+# Short reason for each routing choice — shown as the step detail.
+_ROUTE_WHY = {
+    "data": "historical figures from the local datasets",
+    "both": "needs a figure and an explanation",
+    "concept": "a definition / methodology question",
+    "nop": "the operational situation in NOP messages",
+    "dataapp": "latest daily (D-1) figures for an entity",
+    "nm_live": "the real-time network state",
+    "none": "outside air navigation performance",
+}
+
+
 def answer(
     question: str,
     *,
     history: list[Turn] | None = None,
     client: OllamaClient | None = None,
     catalog: Catalog | None = None,
+    on_status=None,
 ) -> Turn:
+    """Answer a question.
+
+    `on_status(label, detail=None)`, if given, is called at each real stage:
+    `label` is the short rotating status title; `detail` is an optional line
+    describing what that step actually produced (rewritten question, chosen
+    route, SQL, sources) — surfaced live in the UI. Thinking mode is off, so this
+    shows the real per-step artifacts, not a chain-of-thought.
+    """
     client = client or OllamaClient()
     catalog = catalog or get_catalog()
     history = history or []
 
+    def status(label: str, detail: str | None = None) -> None:
+        if on_status is not None:
+            on_status(label, detail)
+
+    if history:
+        status("Reading the conversation…")
     standalone = rewrite_followup(question, history, client)
+    if standalone != question:
+        status("Reading the conversation…", f"Interpreted as: *{standalone}*")
 
     # Data-availability questions ("what data/datasets do you have?", "what data
     # is available for X") are answered from the catalog, not vector search —
     # the docs corpus dilutes them and gives wrong "no info" answers.
     if _is_availability_question(standalone):
         logger.info("turn route=catalog | q=%r", question)
+        status("Choosing the best source…", "Route: **catalogue** (listing available data)")
         turn = Turn(question=question, standalone_question=standalone, route="catalog")
         turn.answer = catalog.describe()
         return turn
 
+    status("Choosing the best source…")
     route = route_question(standalone, client)
     logger.info("turn route=%s | q=%r | standalone=%r", route, question, standalone)
+    status("Choosing the best source…", f"Route: **{route}** — {_ROUTE_WHY.get(route, '')}")
 
     turn = Turn(question=question, standalone_question=standalone, route=route)
 
@@ -127,9 +169,13 @@ def answer(
         )
         return turn
 
+    status(_ROUTE_STATUS.get(route, "Gathering data…"))
     if route in ("data", "both"):
         turn.data = answer_data_question(standalone, client=client, catalog=catalog)
         logger.info("  data ok=%s sql=%r", turn.data.ok, turn.data.sql)
+        if turn.data.sql:
+            status(_ROUTE_STATUS.get(route, "Gathering data…"),
+                   f"SQL:\n```sql\n{turn.data.sql}\n```")
     if route in ("concept", "both"):
         turn.concept = answer_concept_question(standalone, client=client)
         logger.info(
@@ -137,19 +183,24 @@ def answer(
             turn.concept.ok,
             [s.source_title for s in turn.concept.sources],
         )
+        srcs = ", ".join(sorted({s.source_title for s in turn.concept.sources}))
+        if srcs:
+            status("Searching the reference docs & PDFs…", f"Retrieved from: {srcs}")
     if route == "nop":
         turn.nop = answer_nop_question(standalone, client=client)
         logger.info("  nop ok=%s messages=%d", turn.nop.ok, len(turn.nop.messages))
+        status("Fetching NOP messages…", f"Found {len(turn.nop.messages)} relevant message(s)")
     if route == "dataapp":
         turn.dataapp = answer_dataapp_question(standalone, client=client)
-        logger.info(
-            "  dataapp ok=%s entity=%s",
-            turn.dataapp.ok,
-            turn.dataapp.result.entity.name if turn.dataapp.result else None,
-        )
+        ent = turn.dataapp.result.entity.name if turn.dataapp.result else None
+        logger.info("  dataapp ok=%s entity=%s", turn.dataapp.ok, ent)
+        if ent:
+            status("Looking up the latest daily figures…",
+                   f"Resolved entity: **{ent}** (Data App, D-1)")
     if route == "nm_live":
         turn.nm_live = answer_nm_question(standalone, client=client)
         logger.info("  nm_live ok=%s", turn.nm_live.ok)
+        status("Fetching the live network snapshot…", "Live Network Manager data")
 
     turn.answer, turn.sources = _combine(turn)
     return turn
