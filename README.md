@@ -35,25 +35,30 @@ pip install -e ".[dev]"
 cp .env.example .env
 
 # 3. Ingest data (downloads from ansperformance.eu / eurocontrol.int)
-python -m aiu_chat.ingest.download_datasets
-python -m aiu_chat.ingest.build_catalog
+python -m aiu_chat.ingest.download_datasets   # all 13 datasets -> Parquet
+python -m aiu_chat.ingest.build_catalog       # schema catalog (+ drift checks)
+python -m aiu_chat.ingest.build_index         # docs + PDFs -> vector index
+
+# (or run everything, incl. PDF discovery, in one go:)
+bash scripts/refresh.sh
 ```
 
 ## Status
 
-The full hybrid RAG agent works end-to-end on a single dataset (CO2 emissions by
-state) plus the reference docs. The main remaining work is breadth: registering
-the rest of the ~14 EUROCONTROL datasets (each is a `DatasetSpec` with semantic
-notes) and ingesting linked methodology PDFs for deeper concept answers.
+The full hybrid RAG agent works end-to-end across all 13 EUROCONTROL datasets and
+a document corpus built from the reference pages plus PDFs discovered from the
+public portal repo.
 
 Built in vertical slices (see CLAUDE.md).
 
 Working today — the full hybrid agent:
 
-- **Data path:** read-only, sandboxed text-to-SQL over DuckDB/Parquet, with a
-  semantic catalog so the model respects units/granularity; grounded narration.
-- **Concept path:** vector retrieval (DuckDB VSS) over scraped reference pages,
-  answered strictly from the excerpts with sources.
+- **Data path:** read-only, sandboxed text-to-SQL over DuckDB/Parquet (all 13
+  datasets), with a semantic catalog so the model respects units/granularity and
+  coded delay-cause columns; grounded narration.
+- **Concept path:** vector retrieval (DuckDB VSS) over scraped reference pages
+  and ingested PDFs, plus an exact acronym lookup; answered strictly from the
+  retrieved excerpts with sources.
 - **Router + orchestrator:** classifies each question (data / concept / both),
   rewrites follow-ups into standalone questions, and combines results.
 - **Charts:** auto Plotly charts from a validated LLM chart spec.

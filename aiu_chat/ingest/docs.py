@@ -13,10 +13,11 @@ from dataclasses import dataclass
 class DocSource:
     url: str
     title: str
+    glossary: bool = False  # split per-entry (for acronym/definition list pages)
 
 
 DOC_SOURCES: list[DocSource] = [
-    DocSource("https://ansperformance.eu/acronym/", "Acronyms"),
+    DocSource("https://ansperformance.eu/acronym/", "Acronyms", glossary=True),
     DocSource("https://ansperformance.eu/methodology/", "Methodology (index)"),
     DocSource(
         "https://ansperformance.eu/methodology/additional-asma-time/",

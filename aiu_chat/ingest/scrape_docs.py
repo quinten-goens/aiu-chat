@@ -78,6 +78,23 @@ def chunk_text(
     return chunks
 
 
+def chunk_glossary(text: str, *, entries_per_chunk: int = 6) -> list[str]:
+    """Chunk an acronym/definition list page into small per-entry groups.
+
+    The acronyms page separates entries with an em dash on its own line ('—').
+    A few entries per chunk keeps each acronym strongly matchable instead of
+    drowning a single acronym in one giant page-sized chunk.
+    """
+    # Split on lines that are just an em/en dash, the page's entry separator.
+    entries = [e.strip() for e in re.split(r"\n\s*[—–-]\s*\n", text) if e.strip()]
+    if len(entries) < 3:  # not actually a glossary; fall back to normal chunking
+        return chunk_text(text)
+    chunks: list[str] = []
+    for i in range(0, len(entries), entries_per_chunk):
+        chunks.append("\n".join(entries[i : i + entries_per_chunk]))
+    return chunks
+
+
 def scrape_all(sources: list[DocSource] | None = None) -> list[Chunk]:
     """Fetch and chunk all sources. Skips pages that don't resolve."""
     sources = sources or DOC_SOURCES
@@ -87,7 +104,7 @@ def scrape_all(sources: list[DocSource] | None = None) -> list[Chunk]:
         if not text:
             print(f"  - skip {src.url} (unavailable)")
             continue
-        page_chunks = chunk_text(text)
+        page_chunks = chunk_glossary(text) if src.glossary else chunk_text(text)
         for i, ch in enumerate(page_chunks):
             out.append(Chunk(text=ch, source_url=src.url, source_title=src.title, ordinal=i))
         print(f"  + {src.title}: {len(page_chunks)} chunks")

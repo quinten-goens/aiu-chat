@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 
-from aiu_chat.agent.text_to_sql import DataAnswer, answer_data_question
+from aiu_chat.agent.text_to_sql import DataAnswer
 
 GOLD_PATH = Path(__file__).resolve().parent.parent.parent / "tests" / "eval" / "gold.yaml"
 
@@ -74,12 +74,13 @@ def score_case(case: dict, answer: DataAnswer) -> CaseResult:
                 f"expected value {target} (±{tol}) not found in result {numeric}"
             )
 
-    # 4. Expected substring somewhere in the result.
+    # 4. Expected substring in the result rows OR the answer text (so concept
+    #    answers, which have no rows, can still be checked).
     if "expected_text_in" in case:
         needle = str(case["expected_text_in"]).lower()
-        haystack = " ".join(str(v).lower() for v in values)
+        haystack = " ".join(str(v).lower() for v in values) + " " + (answer.answer or "").lower()
         if needle not in haystack:
-            reasons.append(f"expected text {case['expected_text_in']!r} not in result")
+            reasons.append(f"expected text {case['expected_text_in']!r} not found")
 
     return CaseResult(case["id"], passed=not reasons, reasons=reasons)
 
@@ -97,6 +98,31 @@ def load_cases(path: Path = GOLD_PATH) -> list[dict]:
     return data["cases"]
 
 
+def _run_case(question: str) -> DataAnswer:
+    """Run a question through the full agent and adapt the result for scoring.
+
+    Imported lazily so importing the runner (e.g. for unit tests of score_case)
+    doesn't require the whole orchestrator graph. Charts are skipped for speed.
+    """
+    from aiu_chat.agent.orchestrator import answer
+
+    turn = answer(question)
+
+    # For data/both, score the underlying DataAnswer (has SQL + executed rows).
+    if turn.data is not None:
+        # If concept text was also produced, fold it into the answer text so
+        # expected_text_in checks can see it.
+        if turn.concept is not None and turn.concept.ok:
+            turn.data.answer = turn.answer
+        return turn.data
+
+    # Concept-only: synthesize a DataAnswer carrying the combined answer text.
+    ok = bool(turn.concept and turn.concept.ok)
+    return DataAnswer(
+        question=question, sql=None, result=None, answer=turn.answer, ok=ok
+    )
+
+
 def run(quiet: bool = False, path: Path = GOLD_PATH) -> tuple[int, int]:
     """Run all cases. Returns (passed, total)."""
     cases = load_cases(path)
@@ -104,9 +130,7 @@ def run(quiet: bool = False, path: Path = GOLD_PATH) -> tuple[int, int]:
 
     for case in cases:
         try:
-            # Skip charts during eval — we score the executed result, and the
-            # extra chart-spec call would only slow the run.
-            answer = answer_data_question(case["question"], with_chart=False)
+            answer = _run_case(case["question"])
         except Exception as exc:  # model unreachable, etc.
             results.append(CaseResult(case["id"], passed=False, reasons=[f"error: {exc}"]))
             if not quiet:

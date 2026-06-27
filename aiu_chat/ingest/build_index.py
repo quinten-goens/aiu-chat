@@ -12,6 +12,9 @@ import duckdb
 
 from aiu_chat import config
 from aiu_chat.agent.llm import OllamaClient
+from aiu_chat.ingest.acronyms import build_acronym_table
+from aiu_chat.ingest.discover_pdfs import discover_pdf_links
+from aiu_chat.ingest.pdf import scrape_pdfs
 from aiu_chat.ingest.scrape_docs import Chunk, scrape_all
 
 TABLE = "doc_chunks"
@@ -27,13 +30,24 @@ def _connect() -> duckdb.DuckDBPyConnection:
     return con
 
 
-def build_index(client: OllamaClient | None = None) -> int:
-    """Scrape, embed, and store doc chunks. Returns the number stored."""
+def build_index(client: OllamaClient | None = None, include_pdfs: bool = True) -> int:
+    """Scrape pages + PDFs, embed, and store doc chunks. Returns the number stored."""
     client = client or OllamaClient()
     dim = config.EMBEDDING_DIM
 
     print("Scraping reference pages...")
     chunks: list[Chunk] = scrape_all()
+
+    if include_pdfs:
+        print("Discovering and ingesting PDFs...")
+        try:
+            pdf_links = discover_pdf_links()
+            chunks.extend(scrape_pdfs(pdf_links))
+        except Exception as exc:
+            # PDF ingestion is additive; don't let a repo/clone hiccup wipe the
+            # page-based index.
+            print(f"  ! PDF ingestion skipped due to error: {exc}")
+
     if not chunks:
         raise RuntimeError("No document chunks scraped; nothing to index.")
 
@@ -73,6 +87,8 @@ def build_index(client: OllamaClient | None = None) -> int:
             f"WITH (metric = 'cosine')"
         )
         (count,) = con.execute(f"SELECT COUNT(*) FROM {TABLE}").fetchone()
+        # Structured acronym table for exact lookups (complements vector search).
+        build_acronym_table(con)
     finally:
         con.close()
 

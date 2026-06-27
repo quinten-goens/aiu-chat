@@ -222,3 +222,4 @@ data/parquet/
 data/*.duckdb
 data/*.duckdb.wal
 data/catalog.json
+data/aiu-portal/

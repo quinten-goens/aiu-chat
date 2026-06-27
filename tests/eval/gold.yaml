@@ -69,6 +69,18 @@ cases:
     # per-flight additional time must divide by the reference flight count
     sql_must_contain: ["total_add_time_min", "total_ref_nb_fl"]
 
+  # --- concept path (answered from scraped pages + ingested PDFs) ---
+
+  - id: concept_atfm_acronym
+    question: "What does ATFM stand for?"
+    expected_text_in: "Air Traffic Flow Management"
+
+  - id: concept_asma_methodology_from_pdf
+    question: "How is additional ASMA time calculated?"
+    # Should retrieve and answer from the ingested methodology PDF(s); we only
+    # require that it produces a grounded answer (ok), not a specific string.
+    expect_answerable: true
+
   - id: unanswerable_weather
     question: "What will the weather be in Paris tomorrow?"
     expect_answerable: false

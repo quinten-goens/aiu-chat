@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from aiu_chat.agent.concept import answer_concept_question
 from aiu_chat.agent.retriever import RetrievedChunk
-from aiu_chat.ingest.scrape_docs import _extract_main_text, chunk_text
+from aiu_chat.ingest.scrape_docs import _extract_main_text, chunk_glossary, chunk_text
 
 
 # --- extraction ------------------------------------------------------------
@@ -55,6 +55,23 @@ def test_chunk_short_text_single_chunk():
     assert len(chunk_text("Just one short paragraph.")) == 1
 
 
+def test_glossary_chunking_splits_per_entry():
+    # Mimics the acronyms page: entries separated by an em-dash line.
+    text = "\n—\n".join(f"AC{i} - Term number {i}" for i in range(24))
+    chunks = chunk_glossary(text, entries_per_chunk=6)
+    assert len(chunks) == 4  # 24 entries / 6 per chunk
+    # A specific acronym lands in a small, focused chunk.
+    atfm_chunks = [c for c in chunks if "AC5 - Term number 5" in c]
+    assert len(atfm_chunks) == 1
+    assert atfm_chunks[0].count("\n") <= 5  # at most 6 entries
+
+
+def test_glossary_falls_back_for_non_glossary_text():
+    # No em-dash separators -> behaves like normal chunking (single chunk here).
+    assert chunk_glossary("Just a normal paragraph, not a list.") == \
+        chunk_text("Just a normal paragraph, not a list.")
+
+
 # --- concept answering (faked retriever + client) --------------------------
 
 class FakeClient:
@@ -73,14 +90,15 @@ def test_answer_uses_retrieved_chunks():
         RetrievedChunk("ASMA = Arrival Sequencing and Metering Area.",
                        "http://x", "Acronyms", 0.8)
     ]
+    # Use a non-acronym query so the structured acronym lookup stays out of the
+    # way and we test the retrieval->answer path in isolation.
     ans = answer_concept_question(
-        "what is ASMA?",
-        client=FakeClient("ASMA is the Arrival Sequencing and Metering Area."),
+        "how is this metric defined?",
+        client=FakeClient("It is the Arrival Sequencing and Metering Area."),
         retriever=lambda q, client=None: chunks,
     )
     assert ans.ok
-    assert "ASMA" in ans.answer
-    assert ans.sources == chunks
+    assert chunks[0] in ans.sources
 
 
 def test_no_chunks_returns_dont_know():

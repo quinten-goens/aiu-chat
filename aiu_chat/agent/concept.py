@@ -23,6 +23,29 @@ def _format_excerpts(chunks: list[RetrievedChunk]) -> str:
     return "\n\n".join(parts)
 
 
+def _acronym_chunks(question: str) -> list[RetrievedChunk]:
+    """Exact acronym matches as high-confidence chunks (structured lookup).
+
+    Complements vector search: short glossary entries get diluted in a large
+    mixed corpus, so an exact CODE match is surfaced directly.
+    """
+    try:
+        from aiu_chat.ingest.acronyms import lookup_acronyms
+
+        hits = lookup_acronyms(question)
+    except Exception:
+        return []
+    return [
+        RetrievedChunk(
+            text=f"{h['code']} stands for {h['definition']}.",
+            source_url=h["source_url"],
+            source_title="Acronyms",
+            similarity=1.0,  # exact match
+        )
+        for h in hits
+    ]
+
+
 def answer_concept_question(
     question: str,
     *,
@@ -30,7 +53,12 @@ def answer_concept_question(
     retriever=retrieve,
 ) -> ConceptAnswer:
     client = client or OllamaClient()
-    chunks = retriever(question, client=client)
+
+    # Exact acronym matches first, then vector retrieval. Dedup by text.
+    acronyms = _acronym_chunks(question)
+    retrieved = retriever(question, client=client)
+    seen = {a.text for a in acronyms}
+    chunks = acronyms + [c for c in retrieved if c.text not in seen]
 
     if not chunks:
         return ConceptAnswer(

@@ -17,6 +17,7 @@ dependencies = [
     "beautifulsoup4>=4.12.0", # doc scraping
     "lxml>=5.0.0",
     "pyyaml>=6.0",            # gold eval set
+    "pypdf>=4.0.0",          # PDF text extraction
 ]
 
 [project.optional-dependencies]

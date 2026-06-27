@@ -31,7 +31,8 @@ OLLAMA_TIMEOUT = int(os.getenv("AIU_OLLAMA_TIMEOUT", "180"))
 OLLAMA_THINK = os.getenv("AIU_OLLAMA_THINK", "false").lower() in ("1", "true", "yes")
 
 # --- Retrieval -------------------------------------------------------------
-TOP_K = int(os.getenv("AIU_TOP_K", "5"))
+# With a large PDF-inclusive corpus, give the model a few more candidates.
+TOP_K = int(os.getenv("AIU_TOP_K", "8"))
 # Embedding vector dimension (nomic-embed-text = 768). Must match the model.
 EMBEDDING_DIM = int(os.getenv("AIU_EMBEDDING_DIM", "768"))
 # Minimum similarity (cosine) for a retrieved chunk to be considered relevant.
