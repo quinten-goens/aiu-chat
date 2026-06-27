@@ -98,9 +98,9 @@ def _catalog():
 
 
 @st.cache_resource(show_spinner=False)
-def _client(tier: str, think: bool, num_ctx: int):
-    """Cached per (tier, think, num_ctx) so changing the selector rebuilds it."""
-    return OllamaClient.from_tier(tier, think=think, num_ctx=num_ctx)
+def _client(tier: str):
+    """Cached per mode so changing the selector rebuilds the client."""
+    return OllamaClient.from_tier(tier)
 
 
 def _render_turn(turn, idx):
@@ -179,43 +179,28 @@ def _render_suggestions():
 
 
 def _sidebar_controls():
-    """Render the model controls and return (tier, think, num_ctx)."""
+    """Render the mode selector and return the chosen tier key."""
     with st.sidebar:
-        st.subheader("Model")
+        st.subheader("Mode")
 
         tier_keys = list(config.MODEL_TIERS)
         default_idx = tier_keys.index(config.DEFAULT_TIER) if config.DEFAULT_TIER in tier_keys else 0
         tier = st.radio(
-            "Complexity",
+            "Choose a mode",
             tier_keys,
             index=default_idx,
             format_func=lambda k: config.MODEL_TIERS[k]["label"],
+            label_visibility="collapsed",
         )
         st.caption(config.MODEL_TIERS[tier]["blurb"])
-
-        think = st.toggle(
-            "Thinking mode",
-            value=config.OLLAMA_THINK,
-            help="Let the model reason step-by-step before answering. More "
-                 "thorough on hard questions, but noticeably slower.",
-        )
-
-        with st.expander("Advanced"):
-            num_ctx = st.select_slider(
-                "Context window (tokens)",
-                options=[4096, 8192, 16384, 32768],
-                value=config.OLLAMA_NUM_CTX,
-                help="Larger uses more memory; our prompts are small, so the "
-                     "default is usually fine.",
-            )
 
         st.divider()
         st.caption(f"Serving via Ollama at `{config.OLLAMA_HOST}`")
         st.caption(
-            "If a model isn't installed, pull it first: "
+            "If the model isn't installed, pull it first: "
             f"`ollama pull {config.MODEL_TIERS[tier]['model']}`"
         )
-    return tier, think, num_ctx
+    return tier
 
 
 def main():
@@ -228,7 +213,7 @@ def main():
         st.error(f"{exc}")
         st.stop()
 
-    tier, think, num_ctx = _sidebar_controls()
+    tier = _sidebar_controls()
 
     # Chat history (Turn objects) lives in session state and feeds follow-ups.
     if "messages" not in st.session_state:
@@ -260,7 +245,7 @@ def main():
                     turn = answer(
                         prompt,
                         history=st.session_state.history,
-                        client=_client(tier, think, num_ctx),
+                        client=_client(tier),
                         catalog=catalog,
                     )
                 except OllamaError as exc:

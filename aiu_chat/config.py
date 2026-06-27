@@ -30,27 +30,24 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_NAME = os.getenv("AIU_MODEL_NAME", "qwen3.5:9b")
 EMBEDDING_MODEL = os.getenv("AIU_EMBEDDING_MODEL", "nomic-embed-text")
 
-# Model complexity tiers (all Qwen3.5 — same family, all support the think flag,
-# all on Apple Silicon via MLX). Users pick a tier in the UI; the default tier is
-# "medium" (= MODEL_NAME). Pull the ones you want with `ollama pull <model>`.
+# Two preconfigured modes (all Qwen3.5, MLX on Apple Silicon). Users pick one in
+# the UI. Thinking is always off (our prompts do the reasoning scaffolding and it
+# is far faster). Pull the model you want with `ollama pull <model>`.
 MODEL_TIERS = {
-    "mini": {
-        "model": os.getenv("AIU_MODEL_MINI", "qwen3.5:2b"),
-        "label": "Mini · qwen3.5:2b (~2.7 GB)",
-        "blurb": "Fastest, smallest footprint. Quick lookups; weaker reasoning.",
+    "fast": {
+        "model": os.getenv("AIU_MODEL_FAST", "qwen3.5:4b"),
+        "label": "⚡ Fast · qwen3.5:4b (~3.4 GB)",
+        "blurb": "Quicker responses. Good for everyday questions.",
+        "num_ctx": int(os.getenv("AIU_FAST_NUM_CTX", "16384")),
     },
-    "lightweight": {
-        "model": os.getenv("AIU_MODEL_LIGHT", "qwen3.5:4b"),
-        "label": "Lightweight · qwen3.5:4b (~3.4 GB)",
-        "blurb": "Fast and capable. Good for 8 GB Macs.",
-    },
-    "medium": {
-        "model": os.getenv("AIU_MODEL_MEDIUM", MODEL_NAME),
-        "label": "Medium · qwen3.5:9b (~6.6 GB)",
-        "blurb": "Strongest here, balanced default. Best on a 16 GB Mac.",
+    "smart": {
+        "model": os.getenv("AIU_MODEL_SMART", MODEL_NAME),
+        "label": "🧠 Smart · qwen3.5:9b (~6.6 GB)",
+        "blurb": "Stronger reasoning. Better on harder, multi-step questions.",
+        "num_ctx": int(os.getenv("AIU_SMART_NUM_CTX", "8192")),
     },
 }
-DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "medium")
+DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "smart")
 # Context window cap. Some models default to a 256K context that inflates memory
 # to ~20GB and slows generation dramatically; our prompts are small.
 OLLAMA_NUM_CTX = int(os.getenv("AIU_OLLAMA_NUM_CTX", "8192"))

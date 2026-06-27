@@ -87,10 +87,9 @@ The assistant also rewrites follow-up questions into standalone ones (so
     st.header("Model & technologies")
     st.markdown(
         f"""
-- **Local LLM:** [Ollama](https://ollama.com) — pick a complexity tier in the
-  sidebar (Mini / Lightweight / Medium, all Qwen3.5), with an optional
-  **Thinking mode**. Embeddings use `{config.EMBEDDING_MODEL}`. Everything runs
-  on-device.
+- **Local LLM:** [Ollama](https://ollama.com) — pick a mode in the sidebar:
+  **⚡ Fast** (qwen3.5:4b) or **🧠 Smart** (qwen3.5:9b). Embeddings use
+  `{config.EMBEDDING_MODEL}`. Everything runs on-device.
 - **Data + vectors:** [DuckDB](https://duckdb.org) over Parquet for the datasets,
   and its VSS extension for document vector search — one engine for both.
 - **Text-to-SQL safety:** generated SQL is parsed with `sqlglot` and executed

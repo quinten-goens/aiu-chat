@@ -49,17 +49,15 @@ class OllamaClient:
         self.think = config.OLLAMA_THINK if think is None else think
 
     @classmethod
-    def from_tier(
-        cls,
-        tier: str | None = None,
-        *,
-        think: bool | None = None,
-        num_ctx: int | None = None,
-    ) -> "OllamaClient":
-        """Build a client for a named complexity tier (mini/lightweight/medium)."""
+    def from_tier(cls, tier: str | None = None, *, num_ctx: int | None = None) -> "OllamaClient":
+        """Build a client for a named mode (fast/smart).
+
+        Thinking is forced off (the prompts scaffold the reasoning and it's much
+        faster). Context window comes from the tier unless explicitly overridden.
+        """
         tier = tier or config.DEFAULT_TIER
         spec = config.MODEL_TIERS.get(tier) or config.MODEL_TIERS[config.DEFAULT_TIER]
-        return cls(model=spec["model"], think=think, num_ctx=num_ctx)
+        return cls(model=spec["model"], think=False, num_ctx=num_ctx or spec.get("num_ctx"))
 
     # --- chat --------------------------------------------------------------
     def chat(

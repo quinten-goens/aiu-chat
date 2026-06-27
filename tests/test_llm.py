@@ -12,10 +12,11 @@ def test_from_tier_selects_model_and_keeps_embeddings():
     from aiu_chat import config
 
     for tier, spec in config.MODEL_TIERS.items():
-        c = OllamaClient.from_tier(tier, think=True, num_ctx=16384)
+        c = OllamaClient.from_tier(tier)
         assert c.model == spec["model"]
-        assert c.think is True
-        assert c.num_ctx == 16384
+        # thinking is always off; context comes from the tier
+        assert c.think is False
+        assert c.num_ctx == spec["num_ctx"]
         # embeddings stay on the embedding model regardless of chat tier
         assert c.embedding_model == config.EMBEDDING_MODEL
 
