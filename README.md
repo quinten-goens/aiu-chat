@@ -17,16 +17,36 @@ See [CLAUDE.md](CLAUDE.md) for the full architecture and design decisions.
 
 - **UI:** Streamlit
 - **LLM serving:** Ollama (chat + embeddings), OpenAI-compatible API
-- **Default chat model:** `qwen3.5:9b` · **Embeddings:** `nomic-embed-text`
+- **Chat model:** selectable tier (all Qwen3.5) · **Embeddings:** `nomic-embed-text`
 - **Data + vectors:** DuckDB (Parquet for data, VSS extension for doc vectors)
 - **Charts:** Plotly from a validated LLM chart spec
+
+### Model tiers
+
+Pick a complexity tier in the sidebar (with an optional **Thinking mode** toggle).
+All are Qwen3.5 and run locally via Ollama on Apple Silicon (MLX):
+
+| Tier | Model | Size | Notes |
+|---|---|---|---|
+| Mini | `qwen3.5:2b` | ~2.7 GB | Fastest; weaker reasoning |
+| Lightweight | `qwen3.5:4b` | ~3.4 GB | Fast; good on 8 GB Macs |
+| Medium (default) | `qwen3.5:9b` | ~6.6 GB | Strongest here; best on 16 GB |
+
+Only the tiers you `ollama pull` are usable. Override the model per tier via
+`AIU_MODEL_MINI` / `AIU_MODEL_LIGHT` / `AIU_MODEL_MEDIUM` if you want different
+models. **Thinking mode** lets the model reason step-by-step (more thorough on
+hard questions, noticeably slower); it's off by default.
 
 ## Setup
 
 ```bash
 # 1. Local model runtime (one-time)
-ollama pull qwen3.5:9b
-ollama pull nomic-embed-text
+ollama pull nomic-embed-text          # embeddings (required)
+
+# Chat model — pick the tier(s) you want (selectable in the sidebar):
+ollama pull qwen3.5:9b                 # Medium  (~6.6 GB) — default
+ollama pull qwen3.5:4b                 # Lightweight (~3.4 GB) — optional
+ollama pull qwen3.5:2b                 # Mini    (~2.7 GB) — optional
 
 # 2. Python environment
 python3 -m venv .venv

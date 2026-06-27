@@ -8,6 +8,25 @@ import pytest
 from aiu_chat.agent.llm import Message, OllamaClient, OllamaError
 
 
+def test_from_tier_selects_model_and_keeps_embeddings():
+    from aiu_chat import config
+
+    for tier, spec in config.MODEL_TIERS.items():
+        c = OllamaClient.from_tier(tier, think=True, num_ctx=16384)
+        assert c.model == spec["model"]
+        assert c.think is True
+        assert c.num_ctx == 16384
+        # embeddings stay on the embedding model regardless of chat tier
+        assert c.embedding_model == config.EMBEDDING_MODEL
+
+
+def test_from_tier_unknown_falls_back_to_default():
+    from aiu_chat import config
+
+    c = OllamaClient.from_tier("does-not-exist")
+    assert c.model == config.MODEL_TIERS[config.DEFAULT_TIER]["model"]
+
+
 def _mock_response(status=200, payload=None):
     resp = MagicMock()
     resp.status_code = status

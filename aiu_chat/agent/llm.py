@@ -48,6 +48,19 @@ class OllamaClient:
         # disabled by default for deterministic SQL/JSON generation.
         self.think = config.OLLAMA_THINK if think is None else think
 
+    @classmethod
+    def from_tier(
+        cls,
+        tier: str | None = None,
+        *,
+        think: bool | None = None,
+        num_ctx: int | None = None,
+    ) -> "OllamaClient":
+        """Build a client for a named complexity tier (mini/lightweight/medium)."""
+        tier = tier or config.DEFAULT_TIER
+        spec = config.MODEL_TIERS.get(tier) or config.MODEL_TIERS[config.DEFAULT_TIER]
+        return cls(model=spec["model"], think=think, num_ctx=num_ctx)
+
     # --- chat --------------------------------------------------------------
     def chat(
         self,

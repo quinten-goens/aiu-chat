@@ -16,7 +16,14 @@ from aiu_chat.agent.chart import make_chart
 from aiu_chat.agent.llm import OllamaClient, OllamaError
 from aiu_chat.agent.orchestrator import answer
 
-st.set_page_config(page_title="AIU Chat", page_icon="✈️", layout="centered")
+
+def _about():
+    # Imported lazily; `streamlit run app/streamlit_app.py` puts app/ on sys.path.
+    import about_page
+
+    about_page.render()
+
+st.set_page_config(page_title="Aviation Intelligence Chat", page_icon="✈️", layout="centered")
 
 DISCLAIMER = (
     "Data © EUROCONTROL Aviation Intelligence Unit ([ansperformance.eu](https://ansperformance.eu)). "
@@ -91,8 +98,9 @@ def _catalog():
 
 
 @st.cache_resource(show_spinner=False)
-def _client():
-    return OllamaClient()
+def _client(tier: str, think: bool, num_ctx: int):
+    """Cached per (tier, think, num_ctx) so changing the selector rebuilds it."""
+    return OllamaClient.from_tier(tier, think=think, num_ctx=num_ctx)
 
 
 def _render_turn(turn, idx):
@@ -170,8 +178,48 @@ def _render_suggestions():
     return chosen
 
 
+def _sidebar_controls():
+    """Render the model controls and return (tier, think, num_ctx)."""
+    with st.sidebar:
+        st.subheader("Model")
+
+        tier_keys = list(config.MODEL_TIERS)
+        default_idx = tier_keys.index(config.DEFAULT_TIER) if config.DEFAULT_TIER in tier_keys else 0
+        tier = st.radio(
+            "Complexity",
+            tier_keys,
+            index=default_idx,
+            format_func=lambda k: config.MODEL_TIERS[k]["label"],
+        )
+        st.caption(config.MODEL_TIERS[tier]["blurb"])
+
+        think = st.toggle(
+            "Thinking mode",
+            value=config.OLLAMA_THINK,
+            help="Let the model reason step-by-step before answering. More "
+                 "thorough on hard questions, but noticeably slower.",
+        )
+
+        with st.expander("Advanced"):
+            num_ctx = st.select_slider(
+                "Context window (tokens)",
+                options=[4096, 8192, 16384, 32768],
+                value=config.OLLAMA_NUM_CTX,
+                help="Larger uses more memory; our prompts are small, so the "
+                     "default is usually fine.",
+            )
+
+        st.divider()
+        st.caption(f"Serving via Ollama at `{config.OLLAMA_HOST}`")
+        st.caption(
+            "If a model isn't installed, pull it first: "
+            f"`ollama pull {config.MODEL_TIERS[tier]['model']}`"
+        )
+    return tier, think, num_ctx
+
+
 def main():
-    st.title("✈️ AIU Chat")
+    st.title("✈️ Aviation Intelligence Chat")
     st.caption("Ask about European air navigation performance data.")
 
     try:
@@ -180,13 +228,7 @@ def main():
         st.error(f"{exc}")
         st.stop()
 
-    with st.sidebar:
-        st.subheader("Data")
-        for d in catalog.datasets:
-            st.markdown(f"**{d.title}**")
-            st.caption(f"`{d.table}` · through {d.as_of or 'n/a'}")
-        st.divider()
-        st.caption(f"Model: `{config.MODEL_NAME}`")
+    tier, think, num_ctx = _sidebar_controls()
 
     # Chat history (Turn objects) lives in session state and feeds follow-ups.
     if "messages" not in st.session_state:
@@ -218,7 +260,7 @@ def main():
                     turn = answer(
                         prompt,
                         history=st.session_state.history,
-                        client=_client(),
+                        client=_client(tier, think, num_ctx),
                         catalog=catalog,
                     )
                 except OllamaError as exc:
@@ -240,5 +282,12 @@ def main():
     st.caption(DISCLAIMER)
 
 
-if __name__ == "__main__":
-    main()
+# Explicit multi-page navigation so the sidebar labels are clean
+# ("Aviation Intelligence Chat" / "About"), not derived from filenames.
+_nav = st.navigation(
+    [
+        st.Page(main, title="Aviation Intelligence Chat", icon="✈️", default=True),
+        st.Page(_about, title="About", icon="ℹ️"),
+    ]
+)
+_nav.run()
