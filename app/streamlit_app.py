@@ -295,7 +295,8 @@ def _sidebar_controls():
             "Quinten Goens  \n"
             "[quinten.goens@eurocontrol.int](mailto:quinten.goens@eurocontrol.int)"
         )
-        st.caption(DISCLAIMER)
+        st.divider()
+        st.caption(f"**Data & disclaimer**  \n{DISCLAIMER}")
     return tier
 
 

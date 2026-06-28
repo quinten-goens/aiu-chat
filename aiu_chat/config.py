@@ -47,7 +47,7 @@ MODEL_TIERS = {
         "num_ctx": int(os.getenv("AIU_SMART_NUM_CTX", "8192")),
     },
 }
-DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "smart")
+DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "fast")
 # Context window cap. Some models default to a 256K context that inflates memory
 # to ~20GB and slows generation dramatically; our prompts are small.
 OLLAMA_NUM_CTX = int(os.getenv("AIU_OLLAMA_NUM_CTX", "8192"))
