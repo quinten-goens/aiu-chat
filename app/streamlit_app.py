@@ -8,6 +8,8 @@ Run: streamlit run app/streamlit_app.py
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
 from aiu_chat import config
@@ -24,6 +26,11 @@ def _about():
     about_page.render()
 
 st.set_page_config(page_title="Aviation Intelligence + Chat", page_icon="✈️", layout="centered")
+
+# EUROCONTROL logo at the very top of the sidebar, above the page menu.
+_LOGO_PATH = str(Path(__file__).parent / "assets" / "eurocontrol-logo.svg")
+if Path(_LOGO_PATH).exists():
+    st.logo(_LOGO_PATH, size="large")
 
 DISCLAIMER = (
     "Data © EUROCONTROL Aviation Intelligence Unit ([ansperformance.eu](https://ansperformance.eu)). "
@@ -134,19 +141,6 @@ ROUTE_INFO = {
 
 
 @st.cache_resource(show_spinner=False)
-def _logo_svg() -> str:
-    """Inline the EUROCONTROL logo SVG (sized for the sidebar), or '' if missing."""
-    from pathlib import Path
-
-    path = Path(__file__).parent / "assets" / "eurocontrol-logo.svg"
-    if not path.exists():
-        return ""
-    svg = path.read_text(encoding="utf-8")
-    # Constrain width so it fits the sidebar neatly.
-    return svg.replace("<svg ", '<svg width="180" height="auto" ', 1)
-
-
-@st.cache_resource(show_spinner=False)
 def _catalog():
     return get_catalog()
 
@@ -240,14 +234,6 @@ def _render_suggestions():
 def _sidebar_controls():
     """Render the mode selector and return the chosen tier key."""
     with st.sidebar:
-        # EUROCONTROL logo at the top.
-        logo = _logo_svg()
-        if logo:
-            st.markdown(
-                f'<div style="padding:.3rem 0 .8rem">{logo}</div>',
-                unsafe_allow_html=True,
-            )
-
         st.subheader("Mode")
         tier_keys = list(config.MODEL_TIERS)
         default_idx = tier_keys.index(config.DEFAULT_TIER) if config.DEFAULT_TIER in tier_keys else 0
@@ -259,13 +245,6 @@ def _sidebar_controls():
             label_visibility="collapsed",
         )
         st.caption(config.MODEL_TIERS[tier]["blurb"])
-
-        st.divider()
-        st.caption(f"Serving via Ollama at `{config.OLLAMA_HOST}`")
-        st.caption(
-            "If the model isn't installed, pull it first: "
-            f"`ollama pull {config.MODEL_TIERS[tier]['model']}`"
-        )
 
         # Contact details at the bottom.
         st.divider()
