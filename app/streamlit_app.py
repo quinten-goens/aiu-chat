@@ -120,31 +120,39 @@ def _scroll_to_bottom():
     import streamlit.components.v1 as components
 
     # A per-call nonce so Streamlit re-executes the component (and its JS) every
-    # time rather than treating an identical html() call as unchanged.
+    # run rather than treating an identical html() call as unchanged.
     nonce = str(time.time())
     components.html(
         f"""
         <script>
-        // nonce: {nonce}
-        const doc = window.parent.document;
-        const win = window.parent;
-        let tries = 0;
-        const timer = setInterval(() => {{
-            tries++;
-            const msgs = doc.querySelectorAll('[data-testid="stChatMessage"]');
-            const anchor = doc.getElementById('aiu-scroll-anchor');
-            const target = (msgs.length ? msgs[msgs.length - 1] : null) || anchor;
-            if (target) {{
-                target.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+        // nonce {nonce}
+        (function () {{
+            const doc = window.parent.document;
+            let tries = 0;
+            function findScroller() {{
+                // The element whose content overflows is the real scroller.
+                const cands = [
+                    doc.querySelector('[data-testid="stMain"]'),
+                    doc.querySelector('[data-testid="stAppViewContainer"]'),
+                    doc.scrollingElement, doc.documentElement, doc.body,
+                ].filter(Boolean);
+                for (const el of cands) {{
+                    if (el.scrollHeight > el.clientHeight + 4) return el;
+                }}
+                return doc.scrollingElement || doc.documentElement;
             }}
-            // Also nudge every plausible scroll container to the bottom.
-            [doc.scrollingElement, doc.documentElement, doc.body,
-             doc.querySelector('[data-testid="stMain"]'),
-             doc.querySelector('[data-testid="stAppViewContainer"]')]
-             .forEach(el => {{ if (el) el.scrollTop = el.scrollHeight; }});
-            win.scrollTo(0, doc.body.scrollHeight);
-            if (tries > 12) clearInterval(timer);
-        }}, 200);
+            const timer = setInterval(() => {{
+                tries++;
+                const el = findScroller();
+                el.scrollTo({{ top: el.scrollHeight, behavior: 'smooth' }});
+                const msgs = doc.querySelectorAll('[data-testid="stChatMessage"]');
+                if (msgs.length) msgs[msgs.length - 1].scrollIntoView({{block: 'end'}});
+                console.debug('[aiu-scroll]', tries, 'scroller=', el && el.dataset
+                    ? (el.getAttribute('data-testid') || el.tagName) : el && el.tagName,
+                    'h=', el.scrollHeight);
+                if (tries >= 10) clearInterval(timer);
+            }}, 250);
+        }})();
         </script>
         """,
         height=0,
@@ -424,20 +432,13 @@ def main():
                 st.session_state.messages.append(
                     {"role": "assistant", "content": turn.answer, "turn": turn}
                 )
-        # A suggestion click sets state mid-script; rerun so the cards collapse
-        # and the new turn renders through the normal replay path. Flag it so the
-        # next run scrolls down to the freshly-rendered question/answer.
-        if suggested:
-            st.session_state["_scroll_to_latest"] = True
-            st.rerun()
 
-    # Anchor at the very bottom of the chat — the scroll target.
-    st.markdown('<div id="aiu-scroll-anchor"></div>', unsafe_allow_html=True)
-
-    # After a click-triggered rerun, scroll the latest message into view so the
-    # user follows the question down instead of staying on the example cards.
-    if st.session_state.pop("_scroll_to_latest", False):
+        # Everything for this turn is now rendered above; scroll it into view so
+        # the user follows the question down (esp. after clicking an example).
         _scroll_to_bottom()
+
+    # Anchor at the very bottom of the chat — a scroll fallback target.
+    st.markdown('<div id="aiu-scroll-anchor"></div>', unsafe_allow_html=True)
 
 
 # Explicit multi-page navigation so the sidebar labels are clean
