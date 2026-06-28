@@ -108,6 +108,32 @@ def _chip(text: str, kind: str = "", url: str | None = None) -> str:
     return f'<span class="{cls}">{text}</span>'
 
 
+def _scroll_to_bottom():
+    """Scroll the main page to the latest message (used after a suggestion click).
+
+    Runs JS in a (hidden) component iframe and reaches into the parent document.
+    A short retry loop handles Streamlit still painting the new elements.
+    """
+    import streamlit.components.v1 as components
+
+    components.html(
+        """
+        <script>
+        const scroll = () => {
+            const doc = window.parent.document;
+            const main = doc.querySelector('section.main, [data-testid="stMain"]');
+            const target = main || doc.scrollingElement || doc.body;
+            target.scrollTo({ top: target.scrollHeight, behavior: 'smooth' });
+        };
+        // Retry a few times while Streamlit finishes rendering.
+        let n = 0;
+        const t = setInterval(() => { scroll(); if (++n > 8) clearInterval(t); }, 150);
+        </script>
+        """,
+        height=0,
+    )
+
+
 # Suggested topics shown when the chat is empty. Each item is (question, label),
 # where the label is the same text with the key terms in **bold** for the button.
 SUGGESTIONS = [
@@ -381,10 +407,17 @@ def main():
                 st.session_state.messages.append(
                     {"role": "assistant", "content": turn.answer, "turn": turn}
                 )
-        # A suggestion click sets state mid-script; rerun so the cards disappear
-        # and the new turn renders through the normal replay path.
+        # A suggestion click sets state mid-script; rerun so the cards collapse
+        # and the new turn renders through the normal replay path. Flag it so the
+        # next run scrolls down to the freshly-rendered question/answer.
         if suggested:
+            st.session_state["_scroll_to_latest"] = True
             st.rerun()
+
+    # After a click-triggered rerun, scroll the latest message into view so the
+    # user follows the question down instead of staying on the example cards.
+    if st.session_state.pop("_scroll_to_latest", False):
+        _scroll_to_bottom()
 
 
 # Explicit multi-page navigation so the sidebar labels are clean
