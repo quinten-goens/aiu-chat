@@ -111,23 +111,40 @@ def _chip(text: str, kind: str = "", url: str | None = None) -> str:
 def _scroll_to_bottom():
     """Scroll the main page to the latest message (used after a suggestion click).
 
-    Runs JS in a (hidden) component iframe and reaches into the parent document.
-    A short retry loop handles Streamlit still painting the new elements.
+    Runs JS in a component iframe that reaches into the parent document and scrolls
+    the anchor (rendered after the chat) into view. Polls so it lands once
+    Streamlit (and any charts/tables) have finished painting.
     """
+    import time
+
     import streamlit.components.v1 as components
 
+    # A per-call nonce so Streamlit re-executes the component (and its JS) every
+    # time rather than treating an identical html() call as unchanged.
+    nonce = str(time.time())
     components.html(
-        """
+        f"""
         <script>
-        const scroll = () => {
-            const doc = window.parent.document;
-            const main = doc.querySelector('section.main, [data-testid="stMain"]');
-            const target = main || doc.scrollingElement || doc.body;
-            target.scrollTo({ top: target.scrollHeight, behavior: 'smooth' });
-        };
-        // Retry a few times while Streamlit finishes rendering.
-        let n = 0;
-        const t = setInterval(() => { scroll(); if (++n > 8) clearInterval(t); }, 150);
+        // nonce: {nonce}
+        const doc = window.parent.document;
+        const win = window.parent;
+        let tries = 0;
+        const timer = setInterval(() => {{
+            tries++;
+            const msgs = doc.querySelectorAll('[data-testid="stChatMessage"]');
+            const anchor = doc.getElementById('aiu-scroll-anchor');
+            const target = (msgs.length ? msgs[msgs.length - 1] : null) || anchor;
+            if (target) {{
+                target.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+            }}
+            // Also nudge every plausible scroll container to the bottom.
+            [doc.scrollingElement, doc.documentElement, doc.body,
+             doc.querySelector('[data-testid="stMain"]'),
+             doc.querySelector('[data-testid="stAppViewContainer"]')]
+             .forEach(el => {{ if (el) el.scrollTop = el.scrollHeight; }});
+            win.scrollTo(0, doc.body.scrollHeight);
+            if (tries > 12) clearInterval(timer);
+        }}, 200);
         </script>
         """,
         height=0,
@@ -413,6 +430,9 @@ def main():
         if suggested:
             st.session_state["_scroll_to_latest"] = True
             st.rerun()
+
+    # Anchor at the very bottom of the chat — the scroll target.
+    st.markdown('<div id="aiu-scroll-anchor"></div>', unsafe_allow_html=True)
 
     # After a click-triggered rerun, scroll the latest message into view so the
     # user follows the question down instead of staying on the example cards.
