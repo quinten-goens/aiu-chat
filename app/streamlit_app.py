@@ -325,11 +325,18 @@ def main():
 
         with st.chat_message("assistant"):
             status_box = st.status("Thinking…", expanded=True)
+            # Accumulate every stage in the one dropdown (no stage is overwritten).
+            _seen_labels: list[str] = []
 
             def _on_status(label, detail=None):
-                status_box.update(label=label)
+                # Write each new stage as its own line so the full sequence stays
+                # visible; the box title shows the current stage.
+                if label not in _seen_labels:
+                    _seen_labels.append(label)
+                    status_box.write(f"**{label}**")
                 if detail:
                     status_box.write(detail)
+                status_box.update(label=label)
 
             try:
                 turn = answer(
@@ -339,7 +346,7 @@ def main():
                     catalog=catalog,
                     on_status=_on_status,
                 )
-                status_box.update(label="Done", state="complete", expanded=False)
+                status_box.update(label="✓ Done", state="complete", expanded=False)
             except OllamaError as exc:
                 status_box.update(label="Failed", state="error")
                 st.error(f"Could not reach the local model: {exc}")

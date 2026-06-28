@@ -69,6 +69,18 @@ cases:
     # per-flight additional time must divide by the reference flight count
     sql_must_contain: ["total_add_time_min", "total_ref_nb_fl"]
 
+  - id: traffic_by_year_aggregates_yearly
+    question: "Show me EGLL airport traffic by year"
+    # "by year" must group by YEAR only (not month) and never dump raw days
+    sql_must_contain: ["group by year"]
+    sql_must_not_contain: ["flt_date", "month_num"]
+
+  - id: traffic_by_month_aggregates_monthly
+    question: "Show me EBBR airport traffic by month"
+    # monthly must aggregate (not daily) and add a sortable period for the x-axis
+    sql_must_contain: ["month_num", "period"]
+    sql_must_not_contain: ["flt_date", "printf"]
+
   # --- concept path (answered from scraped pages + ingested PDFs) ---
 
   - id: concept_atfm_acronym

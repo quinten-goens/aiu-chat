@@ -17,25 +17,24 @@ prose, no markdown fences, no semicolons-separated multiple statements.
 column or table names.
 - Respect each column's NOTE about units and granularity. Never SUM a value that \
 is already an average; never treat a monthly total as a per-flight figure.
-- ALWAYS aggregate; never dump raw per-day rows or do SELECT *. Select only the \
-columns needed to answer, grouped to a sensible granularity, with an aggregate \
-(SUM/AVG) on the metric. For an open-ended "show me <metric> for <entity>" with \
-no stated granularity, default to monthly: GROUP BY YEAR, MONTH_NUM — do not \
-return one row per day, and do not include FLT_DATE in the SELECT. Add ORDER BY, \
-and LIMIT for "top"/"most"/"least".
-  WRONG: SELECT YEAR, MONTH_NUM, FLT_DATE, FLT_TOT_1 FROM airport_traffic WHERE \
-APT_ICAO='EBBR'  (one row per day — never do this)
-  RIGHT: SELECT YEAR, MONTH_NUM, SUM(FLT_TOT_1) AS total FROM airport_traffic \
-WHERE APT_ICAO='EBBR' GROUP BY YEAR, MONTH_NUM ORDER BY YEAR, MONTH_NUM
-- Match the requested TIME GRANULARITY exactly. Datasets are usually monthly with \
-YEAR + MONTH_NUM columns (and sometimes FLT_DATE):
-    * "by year" / "yearly" / "annual" / "per year" -> GROUP BY YEAR only (do NOT \
-also group by MONTH_NUM — that would give 12 rows per year).
-    * "by month" / "monthly" -> GROUP BY YEAR, MONTH_NUM; ORDER BY YEAR, MONTH_NUM.
-    * "by day" / "daily" -> GROUP BY FLT_DATE if available.
-  If an explicit granularity word (yearly/monthly/daily) is present, it WINS over \
-a vague phrase like "over time". E.g. "yearly traffic over time" means GROUP BY \
-YEAR only.
+- ALWAYS aggregate; never dump raw per-day rows, never SELECT *, never include \
+FLT_DATE in the output. Select only the needed columns with an aggregate \
+(SUM/AVG) on the metric, and add ORDER BY (and LIMIT for "top"/"most"/"least").
+- Choose the GROUP BY by the requested TIME GRANULARITY. An explicit granularity \
+word ALWAYS wins (even over "over time"). Pick exactly one:
+    * "by year" / "yearly" / "annual" / "per year"  ->  GROUP BY YEAR ONLY. Do \
+NOT add MONTH_NUM — that wrongly gives ~12 rows per year. e.g. "EGLL traffic by \
+year" -> SELECT YEAR, SUM(FLT_TOT_1) AS total ... GROUP BY YEAR ORDER BY YEAR.
+    * "by month" / "monthly"  ->  GROUP BY YEAR, MONTH_NUM; ORDER BY YEAR, \
+MONTH_NUM. ALSO add a sortable period label as the first column for the time \
+axis, using string concatenation (MONTH_NUM is already a zero-padded text value): \
+(YEAR || '-' || MONTH_NUM) AS PERIOD — so multi-year monthly data has a unique x \
+value per row, not just 1-12. e.g. "EBBR traffic by month" -> SELECT (YEAR || \
+'-' || MONTH_NUM) AS PERIOD, SUM(FLT_TOT_1) AS total ... GROUP BY YEAR, MONTH_NUM \
+ORDER BY YEAR, MONTH_NUM. Do NOT use printf with %d on MONTH_NUM (it is text).
+    * "by day" / "daily"  ->  GROUP BY FLT_DATE (use FLT_DATE as the time axis).
+    * no granularity stated (e.g. "show me traffic for EGLL")  ->  default to \
+monthly (same as "by month", including the PERIOD column).
 - When the user wants two measures compared (e.g. arrivals AND departures), \
 return them as TWO separate aggregated columns in the same row, not as separate \
 rows.
@@ -109,7 +108,9 @@ BOTH in the y list: "y": ["DEPARTURES", "ARRIVALS"]. Do NOT use "series" for thi
 the coloured groups. NEVER use a time component (YEAR, MONTH_NUM, MONTH_MON, \
 FLT_DATE) as the series — that produces a nonsensical legend. The time/category \
 column belongs on x.
-- For a yearly bar chart, x should be YEAR (one bar group per year).
+- For a yearly chart, x should be YEAR. For a MONTHLY time series, x should be \
+the PERIOD column (a 'YYYY-MM' label) if present, otherwise FLT_DATE — NOT \
+MONTH_NUM alone (which collapses every year onto 1-12). Choose "line" for these.
 """
 
 CHART_USER_TEMPLATE = """\
@@ -121,11 +122,13 @@ First rows (JSON): {rows}
 Output the chart JSON."""
 
 CHART_FORCE_NOTE = (
-    "\nThe user explicitly asked for a chart, so you MUST set show_chart=true and "
-    "pick the chart_type/x/y/series that best matches their request. If they ask "
-    "to see two measures separately (e.g. arrivals AND departures), put both "
-    'column names in the y list (e.g. "y": ["DEPARTURES", "ARRIVALS"]) — do not '
-    "put a time column in series.\n"
+    "\nThe user wants to SEE the data, so set show_chart=true whenever the result "
+    "is at all chartable (a time series, a ranking/top-N, or a category-vs-value "
+    "comparison with 2+ rows). Only keep show_chart=false if the result is a "
+    "single number / single row that genuinely cannot be charted. Pick the "
+    "chart_type/x/y/series that best fits. To show two measures separately (e.g. "
+    'arrivals AND departures), put both in the y list (e.g. "y": ["DEPARTURES", '
+    '"ARRIVALS"]) — never put a time column in series.\n'
 )
 
 

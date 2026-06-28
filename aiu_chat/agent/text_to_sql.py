@@ -18,17 +18,28 @@ from aiu_chat.agent.sql_tool import SqlResult, UnsafeSQLError, run_sql
 
 CANNOT_ANSWER = "CANNOT_ANSWER"
 
-# Words signalling the user explicitly wants a visualisation.
+# Explicit chart words.
 _CHART_INTENT_RE = re.compile(
     r"\b(chart|graph|plot|bar ?chart|line ?chart|visuali[sz]e|"
     r"bars?|histogram|pie|trend line)\b",
     re.IGNORECASE,
 )
 
+# "Let me see the data" intent — viewing a dataset usually implies a chart too,
+# alongside the table. Broader than an explicit chart request.
+_VIEW_INTENT_RE = re.compile(
+    r"\b(show|see|view|display|give me|let me see|get me|breakdown|"
+    r"over time|by (year|month|state|country|airport|ansp)|trend|evolution|"
+    r"compare|comparison|distribution)\b",
+    re.IGNORECASE,
+)
+
 
 def wants_chart(question: str) -> bool:
-    """True if the question explicitly asks for a chart/visualisation."""
-    return bool(_CHART_INTENT_RE.search(question))
+    """True if the user wants a visualisation — either an explicit chart request
+    or a 'show me / see the data' style request (which implies a chart + table).
+    The chart is still only rendered when the data is genuinely chartable."""
+    return bool(_CHART_INTENT_RE.search(question) or _VIEW_INTENT_RE.search(question))
 
 
 @dataclass
