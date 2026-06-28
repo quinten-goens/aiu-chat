@@ -12,4 +12,4 @@ python-dotenv>=1.0.0
 # Ingestion-only (kept so the in-app NOP HTML stripping etc. works):
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
-./aiu_chat
+.
