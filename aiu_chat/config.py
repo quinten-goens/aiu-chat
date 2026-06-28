@@ -10,7 +10,10 @@ from pathlib import Path
 
 # --- Paths -----------------------------------------------------------------
 # Repo root = two levels up from this file (aiu_chat/config.py -> repo/).
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path.cwd()
+
+if not (REPO_ROOT / "data").exists():
+    REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Load a local .env if present so credentials (e.g. NOP) are picked up without a
 # manual export. Real environment variables take precedence (override=False).
