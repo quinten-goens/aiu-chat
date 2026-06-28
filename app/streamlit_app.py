@@ -108,57 +108,6 @@ def _chip(text: str, kind: str = "", url: str | None = None) -> str:
     return f'<span class="{cls}">{text}</span>'
 
 
-def _scroll_to_bottom():
-    """Scroll the main page to the latest message (used after a suggestion click).
-
-    Runs JS in a component iframe that reaches into the parent document and scrolls
-    the anchor (rendered after the chat) into view. Polls so it lands once
-    Streamlit (and any charts/tables) have finished painting.
-    """
-    import time
-
-    import streamlit.components.v1 as components
-
-    # A per-call nonce so Streamlit re-executes the component (and its JS) every
-    # run rather than treating an identical html() call as unchanged.
-    nonce = str(time.time())
-    components.html(
-        f"""
-        <script>
-        // nonce {nonce}
-        (function () {{
-            const doc = (window.top || window.parent).document;
-            // Streamlit's own chat scroll container. It only auto-sticks to the
-            // bottom when you're already there, so after scrolling up + clicking
-            // we must force it. Set scrollTop directly (instant) so Streamlit's
-            // React scroll logic doesn't interrupt a smooth animation.
-            function force() {{
-                const c = doc.querySelector(
-                    '[data-testid="stAppScrollToBottomContainer"]');
-                if (c) c.scrollTop = c.scrollHeight;
-                // Belt-and-braces: also any other overflowing container + window.
-                doc.querySelectorAll('section, div').forEach(el => {{
-                    if (el.scrollHeight > el.clientHeight + 4) {{
-                        const oy = doc.defaultView.getComputedStyle(el).overflowY;
-                        if (oy === 'auto' || oy === 'scroll') el.scrollTop = el.scrollHeight;
-                    }}
-                }});
-                return !!c;
-            }}
-            let tries = 0;
-            // Force repeatedly as Streamlit finishes painting (and tries to reset).
-            const timer = setInterval(() => {{
-                tries++;
-                force();
-                if (tries >= 16) clearInterval(timer);
-            }}, 120);
-        }})();
-        </script>
-        """,
-        height=0,
-    )
-
-
 # Suggested topics shown when the chat is empty. Each item is (question, label),
 # where the label is the same text with the key terms in **bold** for the button.
 SUGGESTIONS = [
@@ -377,7 +326,7 @@ def main():
         st.session_state.history = []  # list of Turn
 
     # Suggestion cards stay at the top, always — open before the first question,
-    # then collapsed (but still scrollable to) once a conversation starts.
+    # then collapsed (but still available) once a conversation starts.
     started = bool(st.session_state.messages)
     with st.expander("💡 Example questions", expanded=not started):
         suggested = _render_suggestions()
@@ -399,12 +348,10 @@ def main():
 
         with st.chat_message("assistant"):
             status_box = st.status("Thinking…", expanded=True)
-            # Accumulate every stage in the one dropdown (no stage is overwritten).
+            # Accumulate every stage in the one dropdown (none overwritten).
             _seen_labels: list[str] = []
 
             def _on_status(label, detail=None):
-                # Write each new stage as its own line so the full sequence stays
-                # visible; the box title shows the current stage.
                 if label not in _seen_labels:
                     _seen_labels.append(label)
                     status_box.write(f"**{label}**")
@@ -426,19 +373,11 @@ def main():
                 st.error(f"Could not reach the local model: {exc}")
                 turn = None
             if turn is not None:
-                # This turn will occupy the next message slot; key by that index.
                 _render_turn(turn, idx=len(st.session_state.messages))
                 st.session_state.history.append(turn)
                 st.session_state.messages.append(
                     {"role": "assistant", "content": turn.answer, "turn": turn}
                 )
-
-        # Everything for this turn is now rendered above; scroll it into view so
-        # the user follows the question down (esp. after clicking an example).
-        _scroll_to_bottom()
-
-    # Anchor at the very bottom of the chat — a scroll fallback target.
-    st.markdown('<div id="aiu-scroll-anchor"></div>', unsafe_allow_html=True)
 
 
 # Explicit multi-page navigation so the sidebar labels are clean
