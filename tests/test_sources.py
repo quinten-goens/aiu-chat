@@ -21,10 +21,13 @@ def test_strip_html_to_text():
     assert "<" not in text
 
 
-def test_keyword_picks_salient_token():
-    assert _keyword("Are there any weather messages about thunderstorms?") == "thunderstorms"
-    # all-stopwords -> None (fetch latest unfiltered)
-    assert _keyword("show me the latest") is None
+def test_keyword_only_for_historical_queries():
+    # Historical phrasing -> keyword filter for a PocketBase search.
+    assert _keyword("Was there a strike last week?") == "strike"
+    # Current-situation questions -> None (fetch the latest tactical updates,
+    # which comprehensively cover weather/aerodromes/airspace).
+    assert _keyword("What is the current situation on the network?") is None
+    assert _keyword("Any airport regulations right now?") is None
 
 
 class _FakeClient:

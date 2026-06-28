@@ -7,21 +7,32 @@ from aiu_chat.agent import prompts
 from aiu_chat.agent.llm import OllamaClient
 from aiu_chat.sources.nop import NopError, NopMessage, fetch_messages
 
-# Stopwords stripped when deriving a keyword filter from the question.
+import re
+
+# Words signalling a HISTORICAL/topical search (vs. the current situation).
+_HISTORICAL_RE = re.compile(
+    r"\b(was|were|last week|last month|yesterday|previous|history|"
+    r"ever|happened|past|earlier)\b",
+    re.IGNORECASE,
+)
+
+# Stopwords stripped when deriving a keyword for a historical search.
 _STOP = {
     "what", "is", "the", "a", "an", "are", "was", "were", "do", "does", "did",
     "show", "me", "tell", "about", "any", "there", "in", "on", "for", "of", "to",
     "nop", "message", "messages", "latest", "recent", "current", "today",
     "give", "can", "you", "please", "and", "or", "with", "this", "that",
+    "situation", "happening", "network", "right", "now",
 }
 
 
 def _keyword(question: str) -> str | None:
-    """Pick a salient keyword from the question for the PocketBase filter.
-
-    Returns the longest non-stopword token (often the topic, e.g. 'weather',
-    'thunderstorm', 'strike'), or None to fetch the latest messages unfiltered.
-    """
+    """Pick a keyword for the PocketBase filter, ONLY for historical/topical
+    searches. For 'current situation' questions we fetch the latest messages
+    unfiltered, since each tactical update already covers weather, aerodromes
+    and airspace comprehensively (and uses ICAO codes, not plain names)."""
+    if not _HISTORICAL_RE.search(question):
+        return None
     words = [w.strip(".,?!:;\"'()").lower() for w in question.split()]
     candidates = [w for w in words if len(w) > 3 and w not in _STOP]
     return max(candidates, key=len) if candidates else None

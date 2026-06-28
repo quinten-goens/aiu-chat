@@ -140,8 +140,12 @@ The default for most quantitative questions about the past.
 - "concept": asks what something MEANS or how a metric is defined/computed \
 (definitions, acronyms, methodology).
 - "both": needs a historical number AND an explanation of a term/methodology.
-- "nop": about NETWORK OPERATIONS PORTAL (NOP) message updates — the operational \
-situation, weather/CB advisories, tactical updates as described in NOP messages.
+- "nop": the qualitative NETWORK OPERATIONS tactical situation from NOP updates — \
+what's happening on the network: weather/CB activity, AERODROME situations \
+(regulations/restrictions/delays at a named airport), and AIRSPACE situations \
+(ATC capacity/sector/ACC issues). Use for "what's the situation at <airport>", \
+"any airspace/capacity issues", "what's happening on the network", "tactical \
+update", as well as network weather.
 - "dataapp": recent DAILY figures (about yesterday / latest available day, this \
 week, or year-to-date) of traffic, ATFM delay, CO2, or punctuality for a \
 specific country, airport, ANSP, or airline. (This source is D-1, not real-time.)
@@ -294,15 +298,25 @@ Answer using only this snapshot."""
 
 
 NOP_SYSTEM = """\
-You answer questions about EUROCONTROL Network Operations Portal (NOP) messages, \
-using ONLY the provided NOP message(s).
+You answer questions about the EUROCONTROL Network Operations Portal (NOP) using \
+ONLY the provided NOP tactical update(s).
+
+A NOP tactical update is a structured operational snapshot of the European air \
+traffic network, with three sections:
+- "Weather": convective/CB activity and other weather affecting the network.
+- "Aerodromes": airport-specific situations — regulations, arrival/departure \
+restrictions, and delays at named airports (ICAO codes).
+- "Airspace": en-route/sector situations — ATC capacity, staffing, sector \
+regulations and delays at named ACCs/FIRs.
 
 Rules:
 - Base your answer strictly on the message content. Do not invent details.
-- NOP messages use aviation shorthand (CB = cumulonimbus, ISOL = isolated, CLST \
-= clustered, FL = flight level, ATFM, FIR, etc.) — interpret it plainly for the \
-user.
-- Note the message type and publish time when relevant.
+- Answer about whichever section(s) the question concerns (weather, a specific \
+airport/aerodrome, airspace/ATC capacity, or the overall tactical situation).
+- Interpret aviation shorthand plainly: CB = cumulonimbus/thunderstorm, ISOL = \
+isolated, CLST = clustered, FL = flight level, ACC = area control centre, ATFM, \
+FIR. ICAO codes name airports/ACCs (e.g. LFPO = Paris Orly, LECB = Barcelona).
+- Note the publish time when relevant.
 - If the messages don't address the question, say so briefly.
 """
 

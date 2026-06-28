@@ -23,7 +23,7 @@ def _about():
 
     about_page.render()
 
-st.set_page_config(page_title="Aviation Intelligence Chat", page_icon="✈️", layout="centered")
+st.set_page_config(page_title="Aviation Intelligence + Chat", page_icon="✈️", layout="centered")
 
 DISCLAIMER = (
     "Data © EUROCONTROL Aviation Intelligence Unit ([ansperformance.eu](https://ansperformance.eu)). "
@@ -52,7 +52,7 @@ SUGGESTIONS = [
         ],
     ),
     (
-        "📊 Historical (by year/month)",
+        "📊 Historical",
         [
             "Which 5 states had the most CO2 emissions in 2024?",
             "Show EGLL airport traffic per year as a bar chart",
@@ -60,9 +60,10 @@ SUGGESTIONS = [
         ],
     ),
     (
-        "📖 NOP & methodology",
+        "📡 Network ops & methodology",
         [
-            "What's the latest NOP weather advisory?",
+            "What's the current tactical situation on the network?",
+            "Any airport regulations or airspace issues right now?",
             "What does ATFM stand for?",
             "How is additional ASMA time calculated?",
         ],
@@ -172,7 +173,6 @@ def _render_turn(turn, idx):
 def _render_suggestions():
     """Topic cards with example questions; clicking one asks it. Returns the
     chosen question, or None."""
-    st.markdown("#### Try one of these")
     chosen = None
     cols = st.columns(len(SUGGESTIONS))
     for col, (topic, questions) in zip(cols, SUGGESTIONS):
@@ -210,7 +210,7 @@ def _sidebar_controls():
 
 
 def main():
-    st.title("✈️ Aviation Intelligence Chat")
+    st.title("✈️ Aviation Intelligence + Chat")
     st.caption("Ask about European air navigation performance data.")
 
     try:
@@ -227,6 +227,12 @@ def main():
     if "history" not in st.session_state:
         st.session_state.history = []  # list of Turn
 
+    # Suggestion cards stay at the top, always — open before the first question,
+    # then collapsed (but still scrollable to) once a conversation starts.
+    started = bool(st.session_state.messages)
+    with st.expander("💡 Example questions", expanded=not started):
+        suggested = _render_suggestions()
+
     # Replay history. The message index gives every element a stable unique key.
     for i, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
@@ -234,9 +240,6 @@ def main():
                 _render_turn(msg["turn"], idx=i)
             else:
                 st.markdown(msg["content"])
-
-    # Suggestion cards while the conversation is empty (the "middle" of the chat).
-    suggested = _render_suggestions() if not st.session_state.messages else None
 
     typed = st.chat_input("e.g. Which 5 states had the most CO2 emissions in 2024?")
     prompt = typed or suggested
@@ -283,10 +286,10 @@ def main():
 
 
 # Explicit multi-page navigation so the sidebar labels are clean
-# ("Aviation Intelligence Chat" / "About"), not derived from filenames.
+# ("Aviation Intelligence + Chat" / "About"), not derived from filenames.
 _nav = st.navigation(
     [
-        st.Page(main, title="Aviation Intelligence Chat", icon="✈️", default=True),
+        st.Page(main, title="Aviation Intelligence + Chat", icon="✈️", default=True),
         st.Page(_about, title="About", icon="ℹ️"),
     ]
 )
