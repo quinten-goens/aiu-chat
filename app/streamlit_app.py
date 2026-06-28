@@ -127,29 +127,34 @@ def _scroll_to_bottom():
         <script>
         // nonce {nonce}
         (function () {{
-            const doc = window.parent.document;
+            // Reach the TOP Streamlit app document (component is nested in an
+            // iframe; window.parent may be an intermediate frame).
+            const doc = (window.top || window.parent).document;
             let tries = 0;
-            function findScroller() {{
-                // The element whose content overflows is the real scroller.
-                const cands = [
-                    doc.querySelector('[data-testid="stMain"]'),
-                    doc.querySelector('[data-testid="stAppViewContainer"]'),
-                    doc.scrollingElement, doc.documentElement, doc.body,
-                ].filter(Boolean);
-                for (const el of cands) {{
-                    if (el.scrollHeight > el.clientHeight + 4) return el;
-                }}
-                return doc.scrollingElement || doc.documentElement;
+            function scrollAll() {{
+                // Find every element on the page that actually overflows and push
+                // each to the bottom — covers whichever one Streamlit scrolls.
+                let scrolled = [];
+                doc.querySelectorAll('*').forEach(el => {{
+                    const cs = doc.defaultView.getComputedStyle(el);
+                    const oy = cs.overflowY;
+                    if ((oy === 'auto' || oy === 'scroll') &&
+                        el.scrollHeight > el.clientHeight + 4) {{
+                        el.scrollTo({{ top: el.scrollHeight, behavior: 'smooth' }});
+                        scrolled.push(el.getAttribute('data-testid') || el.tagName);
+                    }}
+                }});
+                // Also the window/document themselves.
+                (doc.scrollingElement || doc.documentElement).scrollTo(
+                    {{ top: 1e7, behavior: 'smooth' }});
+                const msgs = doc.querySelectorAll('[data-testid="stChatMessage"]');
+                if (msgs.length) msgs[msgs.length - 1].scrollIntoView({{block: 'end'}});
+                return scrolled;
             }}
             const timer = setInterval(() => {{
                 tries++;
-                const el = findScroller();
-                el.scrollTo({{ top: el.scrollHeight, behavior: 'smooth' }});
-                const msgs = doc.querySelectorAll('[data-testid="stChatMessage"]');
-                if (msgs.length) msgs[msgs.length - 1].scrollIntoView({{block: 'end'}});
-                console.debug('[aiu-scroll]', tries, 'scroller=', el && el.dataset
-                    ? (el.getAttribute('data-testid') || el.tagName) : el && el.tagName,
-                    'h=', el.scrollHeight);
+                const s = scrollAll();
+                console.debug('[aiu-scroll]', tries, 'overflowing=', s.join(',') || 'none');
                 if (tries >= 10) clearInterval(timer);
             }}, 250);
         }})();
