@@ -1,30 +1,39 @@
-"""Tests for the Ollama client, mocking HTTP so no server is needed."""
+"""Tests for the LLM clients, mocking HTTP so no server/key is needed."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aiu_chat.agent.llm import Message, OllamaClient, OllamaError
+from aiu_chat.agent.llm import (
+    Message,
+    OllamaClient,
+    OllamaError,
+    OpenAIClient,
+    build_client,
+)
 
 
-def test_from_tier_selects_model_and_keeps_embeddings():
+def test_build_client_selects_provider_and_model():
     from aiu_chat import config
 
     for tier, spec in config.MODEL_TIERS.items():
-        c = OllamaClient.from_tier(tier)
+        c = build_client(tier)
         assert c.model == spec["model"]
-        # thinking is always off; context comes from the tier
-        assert c.think is False
-        assert c.num_ctx == spec["num_ctx"]
-        # embeddings stay on the embedding model regardless of chat tier
+        if spec.get("provider") == "openai":
+            assert isinstance(c, OpenAIClient)
+        else:
+            assert isinstance(c, OllamaClient)
+            assert c.think is False
+            assert c.num_ctx == spec["num_ctx"]
+        # embeddings always use the Ollama embedding model, regardless of provider
         assert c.embedding_model == config.EMBEDDING_MODEL
 
 
-def test_from_tier_unknown_falls_back_to_default():
+def test_build_client_unknown_falls_back_to_default():
     from aiu_chat import config
 
-    c = OllamaClient.from_tier("does-not-exist")
+    c = build_client("does-not-exist")
     assert c.model == config.MODEL_TIERS[config.DEFAULT_TIER]["model"]
 
 
@@ -84,3 +93,56 @@ def test_http_error_raises(mock_post):
     client = OllamaClient(host="http://x")
     with pytest.raises(OllamaError):
         client.chat([Message("user", "hi")])
+
+
+# --- OpenAI client ---------------------------------------------------------
+
+def _openai_response(status=200, content="hello"):
+    resp = MagicMock()
+    resp.status_code = status
+    resp.json.return_value = {"choices": [{"message": {"content": content}}]}
+    resp.text = content
+    return resp
+
+
+@patch("aiu_chat.agent.llm.requests.post")
+def test_openai_chat_calls_api_and_returns_content(mock_post):
+    from aiu_chat.agent.llm import OpenAIClient
+
+    mock_post.return_value = _openai_response(content="42 flights")
+    c = OpenAIClient(model="gpt-5.4-mini", api_key="sk-test")
+    out = c.chat([Message("user", "hi")])
+    assert out == "42 flights"
+    args, kwargs = mock_post.call_args
+    assert args[0] == OpenAIClient.API_URL
+    assert kwargs["headers"]["Authorization"] == "Bearer sk-test"
+    assert kwargs["json"]["model"] == "gpt-5.4-mini"
+
+
+@patch("aiu_chat.agent.llm.requests.post")
+def test_openai_chat_json_sets_response_format(mock_post):
+    from aiu_chat.agent.llm import OpenAIClient
+
+    mock_post.return_value = _openai_response(content='{"route": "data"}')
+    c = OpenAIClient(model="m", api_key="sk-test")
+    assert c.chat_json([Message("user", "hi")]) == {"route": "data"}
+    assert mock_post.call_args.kwargs["json"]["response_format"] == {"type": "json_object"}
+
+
+def test_openai_chat_without_key_raises():
+    from aiu_chat.agent.llm import OpenAIClient, OpenAIError
+
+    c = OpenAIClient(model="m", api_key="")
+    with pytest.raises(OpenAIError):
+        c.chat([Message("user", "hi")])
+
+
+@patch("aiu_chat.agent.llm.requests.post")
+def test_openai_embed_uses_ollama(mock_post):
+    """OpenAI client's embeddings still hit Ollama's /api/embeddings."""
+    from aiu_chat.agent.llm import OpenAIClient
+
+    mock_post.return_value = _mock_response(payload={"embedding": [0.5]})
+    c = OpenAIClient(model="m", api_key="sk-test", embedding_model="e")
+    assert c.embed("x") == [0.5]
+    assert mock_post.call_args.args[0].endswith("/api/embeddings")

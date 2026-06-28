@@ -15,7 +15,7 @@ import streamlit as st
 from aiu_chat import config
 from aiu_chat.agent.catalog import get_catalog
 from aiu_chat.agent.chart import make_chart
-from aiu_chat.agent.llm import OllamaClient, OllamaError
+from aiu_chat.agent.llm import OllamaError, OpenAIError, build_client
 from aiu_chat.agent.orchestrator import answer
 
 
@@ -188,7 +188,7 @@ def _catalog():
 @st.cache_resource(show_spinner=False)
 def _client(tier: str):
     """Cached per mode so changing the selector rebuilds the client."""
-    return OllamaClient.from_tier(tier)
+    return build_client(tier)
 
 
 def _render_turn(turn, idx):
@@ -368,9 +368,9 @@ def main():
                     on_status=_on_status,
                 )
                 status_box.update(label="✓ Done", state="complete", expanded=False)
-            except OllamaError as exc:
+            except (OllamaError, OpenAIError) as exc:
                 status_box.update(label="Failed", state="error")
-                st.error(f"Could not reach the local model: {exc}")
+                st.error(f"Could not reach the model: {exc}")
                 turn = None
             if turn is not None:
                 _render_turn(turn, idx=len(st.session_state.messages))

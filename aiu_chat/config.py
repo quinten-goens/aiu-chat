@@ -30,23 +30,58 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_NAME = os.getenv("AIU_MODEL_NAME", "qwen3.5:9b")
 EMBEDDING_MODEL = os.getenv("AIU_EMBEDDING_MODEL", "nomic-embed-text")
 
-# Two preconfigured modes (all Qwen3.5, MLX on Apple Silicon). Users pick one in
-# the UI. Thinking is always off (our prompts do the reasoning scaffolding and it
-# is far faster). Pull the model you want with `ollama pull <model>`.
-MODEL_TIERS = {
+# --- OpenAI (optional cloud provider) --------------------------------------
+OPENAI_KEY = os.getenv("OPENAI_KEY", "").strip()
+
+
+def openai_enabled() -> bool:
+    return bool(OPENAI_KEY)
+
+
+# Selectable modes. Local modes (Ollama/Qwen3.5) are always available; OpenAI
+# modes appear only when an OPENAI_KEY is set. Each tier names its provider and
+# model. Local thinking is always off; embeddings always use Ollama (to match
+# the existing nomic-embed-text vector index) regardless of the chat provider.
+_LOCAL_TIERS = {
     "fast": {
+        "provider": "ollama",
         "model": os.getenv("AIU_MODEL_FAST", "qwen3.5:4b"),
-        "label": "⚡ Fast · qwen3.5:4b (~3.4 GB)",
-        "blurb": "Quicker responses. Good for everyday questions.",
+        "label": "⚡ Fast · local (qwen3.5:4b)",
+        "blurb": "Quicker responses, runs on your machine. Good for everyday questions.",
         "num_ctx": int(os.getenv("AIU_FAST_NUM_CTX", "16384")),
     },
     "smart": {
+        "provider": "ollama",
         "model": os.getenv("AIU_MODEL_SMART", MODEL_NAME),
-        "label": "🧠 Smart · qwen3.5:9b (~6.6 GB)",
-        "blurb": "Stronger reasoning. Better on harder, multi-step questions.",
+        "label": "🧠 Smart · local (qwen3.5:9b)",
+        "blurb": "Stronger local reasoning. Better on harder, multi-step questions.",
         "num_ctx": int(os.getenv("AIU_SMART_NUM_CTX", "8192")),
     },
 }
+
+_OPENAI_TIERS = {
+    "gpt_nano": {
+        "provider": "openai",
+        "model": os.getenv("AIU_OPENAI_NANO", "gpt-5.4-nano"),
+        "label": "☁️ GPT nano · cloud (fast & cheap)",
+        "blurb": "OpenAI's smallest GPT-5 model. Fast and inexpensive.",
+    },
+    "gpt_mini": {
+        "provider": "openai",
+        "model": os.getenv("AIU_OPENAI_MINI", "gpt-5.4-mini"),
+        "label": "☁️ GPT mini · cloud (balanced)",
+        "blurb": "Balanced OpenAI model — a good cloud default.",
+    },
+    "gpt_max": {
+        "provider": "openai",
+        "model": os.getenv("AIU_OPENAI_MAX", "gpt-5.5"),
+        "label": "☁️ GPT max · cloud (most capable)",
+        "blurb": "OpenAI's most capable general model. Best quality, higher cost.",
+    },
+}
+
+# OpenAI tiers are only offered when a key is configured.
+MODEL_TIERS = {**_LOCAL_TIERS, **(_OPENAI_TIERS if openai_enabled() else {})}
 DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "fast")
 # Context window cap. Some models default to a 256K context that inflates memory
 # to ~20GB and slows generation dramatically; our prompts are small.

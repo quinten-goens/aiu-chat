@@ -1,7 +1,11 @@
-"""Thin Ollama client (chat + embeddings).
+"""LLM clients (chat + embeddings).
 
-Talks to a local Ollama server over its native HTTP API. Kept deliberately small:
-the rest of the agent depends only on `chat()`, `chat_json()`, and `embed()`.
+Two interchangeable chat providers — local Ollama and cloud OpenAI — exposing the
+same small interface the rest of the agent depends on: `chat()`, `chat_json()`,
+and `embed()`. Embeddings ALWAYS go through Ollama (nomic-embed-text) so they
+match the existing vector index, regardless of which chat provider is used.
+
+Use `build_client(tier)` to get the right client for a configured mode.
 """
 from __future__ import annotations
 
@@ -15,6 +19,33 @@ from aiu_chat import config
 
 class OllamaError(RuntimeError):
     """Raised when the Ollama server is unreachable or returns an error."""
+
+
+class OpenAIError(RuntimeError):
+    """Raised when the OpenAI API is unreachable or returns an error."""
+
+
+# Embeddings are provider-independent: always Ollama's nomic-embed-text, to match
+# the vector index the documents were embedded with.
+def embed_text(text: str, *, host: str | None = None,
+               model: str | None = None, timeout: int = 60) -> list[float]:
+    """Return the embedding vector for a string via Ollama (shared by all clients)."""
+    host = (host or config.OLLAMA_HOST).rstrip("/")
+    model = model or config.EMBEDDING_MODEL
+    try:
+        resp = requests.post(
+            f"{host}/api/embeddings", json={"model": model, "prompt": text}, timeout=timeout
+        )
+    except requests.RequestException as exc:
+        raise OllamaError(
+            f"Could not reach Ollama for embeddings at {host}. Is `ollama serve` running? ({exc})"
+        ) from exc
+    if resp.status_code != 200:
+        raise OllamaError(f"Ollama /api/embeddings returned HTTP {resp.status_code}: {resp.text[:200]}")
+    try:
+        return resp.json()["embedding"]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OllamaError(f"Unexpected embedding response: {resp.text[:200]!r}") from exc
 
 
 @dataclass
@@ -47,17 +78,6 @@ class OllamaClient:
         # Reasoning models burn minutes on hidden chain-of-thought per call;
         # disabled by default for deterministic SQL/JSON generation.
         self.think = config.OLLAMA_THINK if think is None else think
-
-    @classmethod
-    def from_tier(cls, tier: str | None = None, *, num_ctx: int | None = None) -> "OllamaClient":
-        """Build a client for a named mode (fast/smart).
-
-        Thinking is forced off (the prompts scaffold the reasoning and it's much
-        faster). Context window comes from the tier unless explicitly overridden.
-        """
-        tier = tier or config.DEFAULT_TIER
-        spec = config.MODEL_TIERS.get(tier) or config.MODEL_TIERS[config.DEFAULT_TIER]
-        return cls(model=spec["model"], think=False, num_ctx=num_ctx or spec.get("num_ctx"))
 
     # --- chat --------------------------------------------------------------
     def chat(
@@ -100,14 +120,8 @@ class OllamaClient:
 
     # --- embeddings --------------------------------------------------------
     def embed(self, text: str) -> list[float]:
-        """Return the embedding vector for a single string."""
-        data = self._post(
-            "/api/embeddings", {"model": self.embedding_model, "prompt": text}
-        )
-        try:
-            return data["embedding"]
-        except (KeyError, TypeError) as exc:
-            raise OllamaError(f"Unexpected embedding response: {data!r}") from exc
+        """Return the embedding vector for a single string (via Ollama)."""
+        return embed_text(text, host=self.host, model=self.embedding_model, timeout=self.timeout)
 
     # --- internals ---------------------------------------------------------
     def _post(self, path: str, payload: dict) -> dict:
@@ -121,3 +135,80 @@ class OllamaClient:
         if resp.status_code != 200:
             raise OllamaError(f"Ollama {path} returned HTTP {resp.status_code}: {resp.text[:300]}")
         return resp.json()
+
+
+class OpenAIClient:
+    """OpenAI chat client over the REST API (same interface as OllamaClient).
+
+    Chat goes to OpenAI; embeddings delegate to Ollama so they match the index.
+    """
+
+    API_URL = "https://api.openai.com/v1/chat/completions"
+
+    def __init__(
+        self,
+        model: str | None = None,
+        api_key: str | None = None,
+        embedding_model: str | None = None,
+        timeout: int | None = None,
+    ):
+        self.model = model or config.MODEL_NAME
+        self.api_key = api_key or config.OPENAI_KEY
+        self.embedding_model = embedding_model or config.EMBEDDING_MODEL
+        self.timeout = timeout or 120
+
+    def chat(
+        self, messages: list[Message], *, temperature: float = 0.0, json_mode: bool = False
+    ) -> str:
+        if not self.api_key:
+            raise OpenAIError("OPENAI_KEY is not set.")
+        payload: dict = {
+            "model": self.model,
+            "messages": [m.as_dict() for m in messages],
+            "temperature": temperature,
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        try:
+            resp = requests.post(
+                self.API_URL, json=payload, timeout=self.timeout,
+                headers={"Authorization": f"Bearer {self.api_key}",
+                         "Content-Type": "application/json"},
+            )
+        except requests.RequestException as exc:
+            raise OpenAIError(f"Could not reach the OpenAI API ({exc}).") from exc
+        if resp.status_code != 200:
+            # Some models reject temperature != default; retry once without it.
+            if resp.status_code == 400 and "temperature" in resp.text.lower():
+                payload.pop("temperature", None)
+                resp = requests.post(
+                    self.API_URL, json=payload, timeout=self.timeout,
+                    headers={"Authorization": f"Bearer {self.api_key}",
+                             "Content-Type": "application/json"},
+                )
+            if resp.status_code != 200:
+                raise OpenAIError(f"OpenAI API returned HTTP {resp.status_code}: {resp.text[:300]}")
+        try:
+            return resp.json()["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise OpenAIError(f"Unexpected OpenAI response: {resp.text[:300]!r}") from exc
+
+    def chat_json(self, messages: list[Message], *, temperature: float = 0.0) -> dict:
+        raw = self.chat(messages, temperature=temperature, json_mode=True)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise OpenAIError(f"Model did not return valid JSON: {raw!r}") from exc
+
+    def embed(self, text: str) -> list[float]:
+        """Embeddings still go through Ollama to match the vector index."""
+        return embed_text(text, model=self.embedding_model)
+
+
+def build_client(tier: str | None = None):
+    """Build the right chat client for a configured mode (provider-aware)."""
+    tier = tier or config.DEFAULT_TIER
+    spec = config.MODEL_TIERS.get(tier) or config.MODEL_TIERS[config.DEFAULT_TIER]
+    if spec.get("provider") == "openai":
+        return OpenAIClient(model=spec["model"])
+    return OllamaClient(model=spec["model"], think=False, num_ctx=spec.get("num_ctx"))
