@@ -127,36 +127,31 @@ def _scroll_to_bottom():
         <script>
         // nonce {nonce}
         (function () {{
-            // Reach the TOP Streamlit app document (component is nested in an
-            // iframe; window.parent may be an intermediate frame).
             const doc = (window.top || window.parent).document;
-            let tries = 0;
-            function scrollAll() {{
-                // Find every element on the page that actually overflows and push
-                // each to the bottom — covers whichever one Streamlit scrolls.
-                let scrolled = [];
-                doc.querySelectorAll('*').forEach(el => {{
-                    const cs = doc.defaultView.getComputedStyle(el);
-                    const oy = cs.overflowY;
-                    if ((oy === 'auto' || oy === 'scroll') &&
-                        el.scrollHeight > el.clientHeight + 4) {{
-                        el.scrollTo({{ top: el.scrollHeight, behavior: 'smooth' }});
-                        scrolled.push(el.getAttribute('data-testid') || el.tagName);
+            // Streamlit's own chat scroll container. It only auto-sticks to the
+            // bottom when you're already there, so after scrolling up + clicking
+            // we must force it. Set scrollTop directly (instant) so Streamlit's
+            // React scroll logic doesn't interrupt a smooth animation.
+            function force() {{
+                const c = doc.querySelector(
+                    '[data-testid="stAppScrollToBottomContainer"]');
+                if (c) c.scrollTop = c.scrollHeight;
+                // Belt-and-braces: also any other overflowing container + window.
+                doc.querySelectorAll('section, div').forEach(el => {{
+                    if (el.scrollHeight > el.clientHeight + 4) {{
+                        const oy = doc.defaultView.getComputedStyle(el).overflowY;
+                        if (oy === 'auto' || oy === 'scroll') el.scrollTop = el.scrollHeight;
                     }}
                 }});
-                // Also the window/document themselves.
-                (doc.scrollingElement || doc.documentElement).scrollTo(
-                    {{ top: 1e7, behavior: 'smooth' }});
-                const msgs = doc.querySelectorAll('[data-testid="stChatMessage"]');
-                if (msgs.length) msgs[msgs.length - 1].scrollIntoView({{block: 'end'}});
-                return scrolled;
+                return !!c;
             }}
+            let tries = 0;
+            // Force repeatedly as Streamlit finishes painting (and tries to reset).
             const timer = setInterval(() => {{
                 tries++;
-                const s = scrollAll();
-                console.debug('[aiu-scroll]', tries, 'overflowing=', s.join(',') || 'none');
-                if (tries >= 10) clearInterval(timer);
-            }}, 250);
+                force();
+                if (tries >= 16) clearInterval(timer);
+            }}, 120);
         }})();
         </script>
         """,
