@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import streamlit as st
+import hmac
 
 from aiu_chat import config
 from aiu_chat.agent.catalog import get_catalog
@@ -18,6 +19,27 @@ from aiu_chat.agent.chart import make_chart
 from aiu_chat.agent.llm import OllamaError, OpenAIError, build_client
 from aiu_chat.agent.orchestrator import answer
 
+def check_password():
+    if st.session_state.get("authenticated", False):
+        return True
+
+    password = st.text_input("Password", type="password")
+
+    if st.button("Log in"):
+        if hmac.compare_digest(
+            password,
+            st.secrets["APP_PASSWORD"],
+        ):
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+
+    return False
+
+
+if not check_password():
+    st.stop()
 
 def _about():
     # Imported lazily; `streamlit run app/streamlit_app.py` puts app/ on sys.path.
