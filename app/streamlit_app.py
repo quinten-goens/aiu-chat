@@ -84,9 +84,9 @@ _CSS = """
     height:1.6rem; line-height:1.6rem; margin-bottom:.4rem;
 }
 
-/* Suggestion buttons: equal-sized boxes tall enough for three lines of text. */
+/* Suggestion buttons: equal-sized boxes (3-line height), centred text. */
 div[data-testid="stExpander"] .stButton > button {
-    display:flex; align-items:flex-start; text-align:left;
+    display:flex; align-items:center; justify-content:center; text-align:center;
     height:5.6rem; width:100%; white-space:normal; line-height:1.3;
     padding:.6rem .7rem; margin-bottom:.45rem; overflow:hidden;
     border:1px solid #D9E2F0; border-radius:.6rem; background:#FBFCFE;
@@ -108,39 +108,51 @@ def _chip(text: str, kind: str = "", url: str | None = None) -> str:
     return f'<span class="{cls}">{text}</span>'
 
 
-# Suggested topics shown when the chat is empty — one row of cards per theme,
-# each with a few example questions that exercise the different sources.
+# Suggested topics shown when the chat is empty. Each item is (question, label),
+# where the label is the same text with the key terms in **bold** for the button.
 SUGGESTIONS = [
     (
         "🟢 Live now",
         [
-            "How many aircraft are airborne right now?",
-            "Which areas have the most delay right now?",
-            "Are there active weather regulations now?",
+            ("How many aircraft are airborne right now?",
+             "How many **aircraft are airborne** right now?"),
+            ("Which areas have the most delay right now?",
+             "Which areas have the **most delay** right now?"),
+            ("Are there active weather regulations now?",
+             "Are there active **weather regulations** now?"),
         ],
     ),
     (
         "📅 Latest daily",
         [
-            "How many flights did France have on the latest day?",
-            "What is the latest daily ATFM delay for DSNA?",
-            "Latest punctuality at Heathrow?",
+            ("How many flights did France have on the latest day?",
+             "How many **flights** did **France** have on the latest day?"),
+            ("What is the latest daily ATFM delay for DSNA?",
+             "Latest daily **ATFM delay** for **DSNA**?"),
+            ("Latest punctuality at Heathrow?",
+             "Latest **punctuality** at **Heathrow**?"),
         ],
     ),
     (
         "📊 Historical",
         [
-            "Which 5 states had the most CO2 emissions in 2024?",
-            "Show EGLL airport traffic per year as a bar chart",
-            "Which ANSP had the most en-route ATFM delay in 2025?",
+            ("Which 5 states had the most CO2 emissions in 2024?",
+             "Which 5 states had the most **CO2 emissions** in **2024**?"),
+            ("Show EGLL airport traffic per year as a bar chart",
+             "**EGLL airport traffic** per year as a **bar chart**"),
+            ("Which ANSP had the most en-route ATFM delay in 2025?",
+             "Which **ANSP** had the most **en-route ATFM delay** in 2025?"),
         ],
     ),
     (
         "📡 Network ops",
         [
-            "What's the current tactical situation on the network?",
-            "Any airport regulations or airspace issues right now?",
-            "How is additional ASMA time calculated?",
+            ("What's the current tactical situation on the network?",
+             "Current **tactical situation** on the **network**?"),
+            ("Any airport regulations or airspace issues right now?",
+             "Any **airport regulations** or **airspace** issues now?"),
+            ("How is additional ASMA time calculated?",
+             "How is **additional ASMA time** calculated?"),
         ],
     ),
 ]
@@ -255,9 +267,9 @@ def _render_suggestions():
             # Fixed single-line title so columns stay row-aligned regardless of
             # title length.
             st.markdown(f'<div class="aiu-sugg-title">{topic}</div>', unsafe_allow_html=True)
-            for j, q in enumerate(questions):
-                if st.button(q, key=f"sugg_{topic}_{j}", use_container_width=True):
-                    chosen = q
+            for j, (question, label) in enumerate(questions):
+                if st.button(label, key=f"sugg_{topic}_{j}", use_container_width=True):
+                    chosen = question
     return chosen
 
 
@@ -276,13 +288,14 @@ def _sidebar_controls():
         )
         st.caption(config.MODEL_TIERS[tier]["blurb"])
 
-        # Contact details at the bottom.
+        # Contact details + data attribution at the bottom.
         st.divider()
         st.caption(
             "**Issues or feedback?**  \n"
             "Quinten Goens  \n"
             "[quinten.goens@eurocontrol.int](mailto:quinten.goens@eurocontrol.int)"
         )
+        st.caption(DISCLAIMER)
     return tier
 
 
@@ -371,9 +384,6 @@ def main():
         # and the new turn renders through the normal replay path.
         if suggested:
             st.rerun()
-
-    st.divider()
-    st.caption(DISCLAIMER)
 
 
 # Explicit multi-page navigation so the sidebar labels are clean
