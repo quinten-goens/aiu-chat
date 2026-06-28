@@ -20,17 +20,49 @@ try:
     load_dotenv(REPO_ROOT / ".env", override=False)
 except ImportError:
     pass
+
+# On Streamlit Cloud, secrets are exposed via st.secrets (not as env vars). Mirror
+# them into the environment so the os.getenv-based config below picks them up.
+# Real env vars still win (we only set keys that aren't already present).
+try:  # pragma: no cover - only runs under Streamlit
+    import streamlit as _st
+
+    for _k, _v in dict(_st.secrets).items():
+        if isinstance(_v, (str, int, float, bool)) and _k not in os.environ:
+            os.environ[_k] = str(_v)
+except Exception:
+    pass
+# --- Deployment mode -------------------------------------------------------
+# LOCAL=true  -> runs on your machine: chat + embeddings via local Ollama.
+# LOCAL=false -> cloud (e.g. Streamlit Cloud): chat + embeddings via OpenAI only
+#                (no Ollama). Set OPENAI_KEY for the cloud deployment.
+LOCAL = os.getenv("LOCAL", "true").lower() in ("1", "true", "yes")
+
 DATA_DIR = Path(os.getenv("AIU_DATA_DIR", REPO_ROOT / "data"))
 PARQUET_DIR = Path(os.getenv("AIU_PARQUET_DIR", DATA_DIR / "parquet"))
-DUCKDB_PATH = Path(os.getenv("AIU_DUCKDB_PATH", DATA_DIR / "aiu.duckdb"))
 CATALOG_PATH = Path(os.getenv("AIU_CATALOG_PATH", DATA_DIR / "catalog.json"))
+# Vector index lives in its own DuckDB per deployment (different embedding dims):
+# local uses nomic (768), cloud uses OpenAI (1536) — they are not interchangeable.
+_DEFAULT_DUCKDB = DATA_DIR / ("aiu.duckdb" if LOCAL else "aiu_cloud.duckdb")
+DUCKDB_PATH = Path(os.getenv("AIU_DUCKDB_PATH", _DEFAULT_DUCKDB))
 
 # --- Ollama ----------------------------------------------------------------
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_NAME = os.getenv("AIU_MODEL_NAME", "qwen3.5:9b")
-EMBEDDING_MODEL = os.getenv("AIU_EMBEDDING_MODEL", "nomic-embed-text")
 
-# --- OpenAI (optional cloud provider) --------------------------------------
+# --- Embeddings (provider depends on the deployment) -----------------------
+# Local: Ollama nomic-embed-text (768-dim). Cloud: OpenAI text-embedding-3-small
+# (1536-dim). The dimension MUST match the index that was built, so it is derived
+# from the deployment rather than hand-set.
+if LOCAL:
+    EMBEDDING_PROVIDER = "ollama"
+    EMBEDDING_MODEL = os.getenv("AIU_LOCAL_EMBEDDING_MODEL", "nomic-embed-text")
+    EMBEDDING_DIM = int(os.getenv("AIU_LOCAL_EMBEDDING_DIM", "768"))
+else:
+    EMBEDDING_PROVIDER = "openai"
+    EMBEDDING_MODEL = os.getenv("AIU_CLOUD_EMBEDDING_MODEL", "text-embedding-3-small")
+    EMBEDDING_DIM = int(os.getenv("AIU_CLOUD_EMBEDDING_DIM", "1536"))
+
 OPENAI_KEY = os.getenv("OPENAI_KEY", "").strip()
 
 
@@ -38,10 +70,9 @@ def openai_enabled() -> bool:
     return bool(OPENAI_KEY)
 
 
-# Selectable modes. Local modes (Ollama/Qwen3.5) are always available; OpenAI
-# modes appear only when an OPENAI_KEY is set. Each tier names its provider and
-# model. Local thinking is always off; embeddings always use Ollama (to match
-# the existing nomic-embed-text vector index) regardless of the chat provider.
+# --- Selectable chat modes (depend on the deployment) ----------------------
+# Local: Ollama/Qwen3.5 tiers. Cloud: OpenAI GPT tiers. Each tier names its
+# provider + model; local thinking is always off.
 _LOCAL_TIERS = {
     "fast": {
         "provider": "ollama",
@@ -63,26 +94,29 @@ _OPENAI_TIERS = {
     "gpt_nano": {
         "provider": "openai",
         "model": os.getenv("AIU_OPENAI_NANO", "gpt-5.4-nano"),
-        "label": "☁️ GPT nano · cloud (fast & cheap)",
+        "label": "⚡ Fast · GPT nano",
         "blurb": "OpenAI's smallest GPT-5 model. Fast and inexpensive.",
     },
     "gpt_mini": {
         "provider": "openai",
         "model": os.getenv("AIU_OPENAI_MINI", "gpt-5.4-mini"),
-        "label": "☁️ GPT mini · cloud (balanced)",
-        "blurb": "Balanced OpenAI model — a good cloud default.",
+        "label": "🧠 Balanced · GPT mini",
+        "blurb": "Balanced OpenAI model — a good default.",
     },
     "gpt_max": {
         "provider": "openai",
         "model": os.getenv("AIU_OPENAI_MAX", "gpt-5.5"),
-        "label": "☁️ GPT max · cloud (most capable)",
+        "label": "🚀 Max · GPT (most capable)",
         "blurb": "OpenAI's most capable general model. Best quality, higher cost.",
     },
 }
 
-# OpenAI tiers are only offered when a key is configured.
-MODEL_TIERS = {**_LOCAL_TIERS, **(_OPENAI_TIERS if openai_enabled() else {})}
-DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "fast")
+if LOCAL:
+    MODEL_TIERS = dict(_LOCAL_TIERS)
+    DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "fast")
+else:
+    MODEL_TIERS = dict(_OPENAI_TIERS)
+    DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "gpt_mini")
 # Context window cap. Some models default to a 256K context that inflates memory
 # to ~20GB and slows generation dramatically; our prompts are small.
 OLLAMA_NUM_CTX = int(os.getenv("AIU_OLLAMA_NUM_CTX", "8192"))
@@ -96,8 +130,7 @@ OLLAMA_THINK = os.getenv("AIU_OLLAMA_THINK", "false").lower() in ("1", "true", "
 # --- Retrieval -------------------------------------------------------------
 # With a large PDF-inclusive corpus, give the model a few more candidates.
 TOP_K = int(os.getenv("AIU_TOP_K", "8"))
-# Embedding vector dimension (nomic-embed-text = 768). Must match the model.
-EMBEDDING_DIM = int(os.getenv("AIU_EMBEDDING_DIM", "768"))
+# (EMBEDDING_DIM is derived from the deployment above.)
 # Minimum similarity (cosine) for a retrieved chunk to be considered relevant.
 # 0.5 trims weak/irrelevant matches that otherwise dilute concept answers.
 MIN_SIMILARITY = float(os.getenv("AIU_MIN_SIMILARITY", "0.5"))

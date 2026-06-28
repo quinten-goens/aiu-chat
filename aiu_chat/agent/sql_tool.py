@@ -16,6 +16,7 @@ The public entry point is `run_sql(sql)`, returning a SqlResult.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import duckdb
 import pandas as pd
@@ -126,18 +127,26 @@ def _cte_names(stmt: exp.Expression) -> set[str]:
 
 
 def _connect_readonly(catalog: Catalog) -> duckdb.DuckDBPyConnection:
-    """In-memory connection with each catalog table as a read-only Parquet view.
+    """In-memory connection exposing each catalog table as a read-only view.
 
-    We use an in-memory DB (no writable database file) and register each dataset
-    as a VIEW over read_parquet(...). The view definitions are created by us, not
-    by the model, so they are trusted; the model's query only ever sees views.
+    Local: views over the dataset's Parquet file. Cloud (no Parquet shipped): the
+    datasets live as tables inside the bundled DuckDB, so we ATTACH it read-only
+    and view its tables. Either way the view definitions are created by us
+    (trusted); the model's query only ever sees the views.
     """
     con = duckdb.connect(database=":memory:")
+    attached = False
     for d in catalog.datasets:
-        safe_path = d.parquet_path.replace("'", "''")
-        con.execute(
-            f"CREATE VIEW {d.table} AS SELECT * FROM read_parquet('{safe_path}')"
-        )
+        if Path(d.parquet_path).exists():
+            safe_path = d.parquet_path.replace("'", "''")
+            con.execute(f"CREATE VIEW {d.table} AS SELECT * FROM read_parquet('{safe_path}')")
+        else:
+            # Cloud: read the dataset table from the bundled DuckDB.
+            if not attached:
+                safe_db = str(config.DUCKDB_PATH).replace("'", "''")
+                con.execute(f"ATTACH '{safe_db}' AS bundled (READ_ONLY)")
+                attached = True
+            con.execute(f"CREATE VIEW {d.table} AS SELECT * FROM bundled.{d.table}")
     return con
 
 

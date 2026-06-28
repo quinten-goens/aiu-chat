@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import duckdb
 
 from aiu_chat import config
-from aiu_chat.agent.llm import OllamaClient
+from aiu_chat.agent.llm import embed_text
 from aiu_chat.ingest.build_index import TABLE
 
 
@@ -39,16 +39,19 @@ def index_exists() -> bool:
 def retrieve(
     query: str,
     *,
-    client: OllamaClient | None = None,
+    client=None,  # accepted for call-site compatibility; embedding uses embed_text
     top_k: int | None = None,
     min_similarity: float | None = None,
 ) -> list[RetrievedChunk]:
-    """Return the most similar doc chunks to the query, filtered by similarity."""
-    client = client or OllamaClient()
+    """Return the most similar doc chunks to the query, filtered by similarity.
+
+    Embeds the query with the deployment's configured provider (Ollama or OpenAI),
+    matching the index it queries.
+    """
     top_k = top_k or config.TOP_K
     min_similarity = config.MIN_SIMILARITY if min_similarity is None else min_similarity
 
-    qvec = client.embed(query)
+    qvec = embed_text(query)
     dim = config.EMBEDDING_DIM
 
     con = _connect()

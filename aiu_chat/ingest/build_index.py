@@ -11,7 +11,7 @@ from __future__ import annotations
 import duckdb
 
 from aiu_chat import config
-from aiu_chat.agent.llm import OllamaClient
+from aiu_chat.agent.llm import embed_text
 from aiu_chat.ingest.acronyms import build_acronym_table
 from aiu_chat.ingest.discover_pdfs import discover_pdf_links
 from aiu_chat.ingest.pdf import scrape_pdfs
@@ -30,9 +30,12 @@ def _connect() -> duckdb.DuckDBPyConnection:
     return con
 
 
-def build_index(client: OllamaClient | None = None, include_pdfs: bool = True) -> int:
-    """Scrape pages + PDFs, embed, and store doc chunks. Returns the number stored."""
-    client = client or OllamaClient()
+def build_index(include_pdfs: bool = True) -> int:
+    """Scrape pages + PDFs, embed, and store doc chunks. Returns the number stored.
+
+    Embeddings use the deployment's configured provider (Ollama nomic locally,
+    OpenAI text-embedding-3-small in the cloud), so the index dimension matches.
+    """
     dim = config.EMBEDDING_DIM
 
     print("Scraping reference pages...")
@@ -51,14 +54,15 @@ def build_index(client: OllamaClient | None = None, include_pdfs: bool = True) -
     if not chunks:
         raise RuntimeError("No document chunks scraped; nothing to index.")
 
-    print(f"Embedding {len(chunks)} chunks with '{client.embedding_model}'...")
+    print(f"Embedding {len(chunks)} chunks with '{config.EMBEDDING_MODEL}' "
+          f"({config.EMBEDDING_PROVIDER}, dim={dim})...")
     rows = []
     for i, ch in enumerate(chunks, 1):
-        vec = client.embed(ch.text)
+        vec = embed_text(ch.text)
         if len(vec) != dim:
             raise RuntimeError(
-                f"Embedding dim {len(vec)} != configured {dim}. "
-                f"Set AIU_EMBEDDING_DIM to match '{client.embedding_model}'."
+                f"Embedding dim {len(vec)} != configured {dim} for "
+                f"'{config.EMBEDDING_MODEL}'."
             )
         rows.append((i, ch.text, ch.source_url, ch.source_title, ch.ordinal, vec))
         if i % 20 == 0:

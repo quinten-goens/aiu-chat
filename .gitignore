@@ -223,3 +223,7 @@ data/*.duckdb
 data/*.duckdb.wal
 data/catalog.json
 data/aiu-portal/
+# ...but DO ship the self-contained cloud DuckDB (via Git LFS) and the catalog,
+# which the deployed app needs.
+!data/aiu_cloud.duckdb
+!data/catalog.json

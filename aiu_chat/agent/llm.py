@@ -25,13 +25,18 @@ class OpenAIError(RuntimeError):
     """Raised when the OpenAI API is unreachable or returns an error."""
 
 
-# Embeddings are provider-independent: always Ollama's nomic-embed-text, to match
-# the vector index the documents were embedded with.
-def embed_text(text: str, *, host: str | None = None,
-               model: str | None = None, timeout: int = 60) -> list[float]:
-    """Return the embedding vector for a string via Ollama (shared by all clients)."""
-    host = (host or config.OLLAMA_HOST).rstrip("/")
-    model = model or config.EMBEDDING_MODEL
+# Embeddings match the deployment's index: Ollama nomic-embed-text (local, 768)
+# or OpenAI text-embedding-3-small (cloud, 1536). The dimension must match the
+# index the documents were embedded with, so the provider is config-driven.
+def embed_text(text: str, *, model: str | None = None, timeout: int = 60) -> list[float]:
+    """Return the embedding vector for a string, via the configured provider."""
+    if config.EMBEDDING_PROVIDER == "openai":
+        return _embed_openai(text, model=model or config.EMBEDDING_MODEL, timeout=timeout)
+    return _embed_ollama(text, model=model or config.EMBEDDING_MODEL, timeout=timeout)
+
+
+def _embed_ollama(text: str, *, model: str, timeout: int) -> list[float]:
+    host = config.OLLAMA_HOST.rstrip("/")
     try:
         resp = requests.post(
             f"{host}/api/embeddings", json={"model": model, "prompt": text}, timeout=timeout
@@ -46,6 +51,26 @@ def embed_text(text: str, *, host: str | None = None,
         return resp.json()["embedding"]
     except (KeyError, TypeError, ValueError) as exc:
         raise OllamaError(f"Unexpected embedding response: {resp.text[:200]!r}") from exc
+
+
+def _embed_openai(text: str, *, model: str, timeout: int) -> list[float]:
+    if not config.OPENAI_KEY:
+        raise OpenAIError("OPENAI_KEY is not set (needed for cloud embeddings).")
+    try:
+        resp = requests.post(
+            "https://api.openai.com/v1/embeddings",
+            json={"model": model, "input": text}, timeout=timeout,
+            headers={"Authorization": f"Bearer {config.OPENAI_KEY}",
+                     "Content-Type": "application/json"},
+        )
+    except requests.RequestException as exc:
+        raise OpenAIError(f"Could not reach the OpenAI embeddings API ({exc}).") from exc
+    if resp.status_code != 200:
+        raise OpenAIError(f"OpenAI embeddings returned HTTP {resp.status_code}: {resp.text[:200]}")
+    try:
+        return resp.json()["data"][0]["embedding"]
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise OpenAIError(f"Unexpected OpenAI embeddings response: {resp.text[:200]!r}") from exc
 
 
 @dataclass
@@ -120,8 +145,8 @@ class OllamaClient:
 
     # --- embeddings --------------------------------------------------------
     def embed(self, text: str) -> list[float]:
-        """Return the embedding vector for a single string (via Ollama)."""
-        return embed_text(text, host=self.host, model=self.embedding_model, timeout=self.timeout)
+        """Return the embedding vector for a single string (configured provider)."""
+        return embed_text(text, model=self.embedding_model, timeout=self.timeout)
 
     # --- internals ---------------------------------------------------------
     def _post(self, path: str, payload: dict) -> dict:

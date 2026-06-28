@@ -1,0 +1,14 @@
+# Runtime dependencies for the Streamlit Cloud deployment (LOCAL=false).
+# Chat + embeddings go to OpenAI over HTTP; the bundled DuckDB holds the data and
+# vector index, so neither Ollama nor a Parquet directory is needed in the cloud.
+duckdb>=1.1.0
+requests>=2.31.0
+streamlit>=1.36.0
+plotly>=5.22.0
+pandas>=2.0.0
+sqlglot>=25.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+# Ingestion-only (kept so the in-app NOP HTML stripping etc. works):
+beautifulsoup4>=4.12.0
+lxml>=5.0.0

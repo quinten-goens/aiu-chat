@@ -1,0 +1,1613 @@
+{
+  "generated_at": "2026-06-27T14:39:29.728037+00:00",
+  "source": "EUROCONTROL Aviation Intelligence Unit (ansperformance.eu)",
+  "datasets": [
+    {
+      "table": "co2_emissions_by_state",
+      "title": "CO2 Emissions by State",
+      "description": "Monthly gate-to-gate CO2 emissions and IFR flight counts attributed to each European state's airspace, from EUROCONTROL AIU.",
+      "granularity": "one row per state per calendar month",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/co2_emissions_by_state.parquet",
+      "as_of": "2026-05-01",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH",
+          "type": "BIGINT",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_NAME",
+          "type": "VARCHAR",
+          "description": "State name in uppercase (e.g. 'FRANCE').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_CODE",
+          "type": "VARCHAR",
+          "description": "ICAO-style state/region code prefix (e.g. 'LF').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "CO2_QTY_TONNES",
+          "type": "DOUBLE",
+          "description": "CO2 emitted.",
+          "unit": "tonnes",
+          "note": "Monthly TOTAL for the state \u2014 safe to SUM across months/states; do NOT average it as if it were a per-flight figure."
+        },
+        {
+          "name": "TF",
+          "type": "BIGINT",
+          "description": "Total IFR flights in the month for the state.",
+          "unit": "flights",
+          "note": "Monthly TOTAL count \u2014 safe to SUM. Per-flight CO2 = CO2_QTY_TONNES / TF."
+        },
+        {
+          "name": "NOTE",
+          "type": "BOOLEAN",
+          "description": "Data-quality flag set by EUROCONTROL for the row.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLIGHT_MONTH",
+          "type": "DATE",
+          "description": "First day of the reporting month.",
+          "unit": null,
+          "note": "Use for time-series ordering; combine with YEAR/MONTH for filtering."
+        }
+      ]
+    },
+    {
+      "table": "airport_traffic",
+      "title": "Airport Traffic",
+      "description": "Daily departures, arrivals and total movements per airport.",
+      "granularity": "one row per airport per day",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/airport_traffic.parquet",
+      "as_of": "2026-05-31",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "VARCHAR",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DATE",
+          "type": "DATE",
+          "description": "Flight date (the day).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_ICAO",
+          "type": "VARCHAR",
+          "description": "Airport ICAO code (e.g. 'EGLL').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_NAME",
+          "type": "VARCHAR",
+          "description": "Airport name.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_NAME",
+          "type": "VARCHAR",
+          "description": "State the airport is in (e.g. 'France').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DEP_1",
+          "type": "BIGINT",
+          "description": "Departures (all flights).",
+          "unit": "flights",
+          "note": "Daily count \u2014 SUM across days for monthly/yearly totals."
+        },
+        {
+          "name": "FLT_ARR_1",
+          "type": "BIGINT",
+          "description": "Arrivals (all flights).",
+          "unit": "flights",
+          "note": "Daily count \u2014 safe to SUM."
+        },
+        {
+          "name": "FLT_TOT_1",
+          "type": "BIGINT",
+          "description": "Total movements (departures + arrivals).",
+          "unit": "flights",
+          "note": "Daily count \u2014 safe to SUM."
+        },
+        {
+          "name": "FLT_DEP_IFR_2",
+          "type": "BIGINT",
+          "description": "IFR departures.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "FLT_ARR_IFR_2",
+          "type": "BIGINT",
+          "description": "IFR arrivals.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "FLT_TOT_IFR_2",
+          "type": "BIGINT",
+          "description": "Total IFR movements.",
+          "unit": "flights",
+          "note": null
+        }
+      ]
+    },
+    {
+      "table": "atc_pre_departure_delays",
+      "title": "ATC Pre-Departure Delays",
+      "description": "ATC pre-departure delay minutes by airport and day.",
+      "granularity": "one row per airport per day",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/atc_pre_departure_delays.parquet",
+      "as_of": "2026-05-31",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "VARCHAR",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DATE",
+          "type": "DATE",
+          "description": "Flight date.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_ICAO",
+          "type": "VARCHAR",
+          "description": "Airport ICAO code (e.g. 'EGLL').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_NAME",
+          "type": "VARCHAR",
+          "description": "Airport name.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_NAME",
+          "type": "VARCHAR",
+          "description": "State the airport is in (e.g. 'France').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DEP_1",
+          "type": "BIGINT",
+          "description": "Departures (all flights).",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "FLT_DEP_IFR_2",
+          "type": "BIGINT",
+          "description": "IFR departures (reference for the metric).",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "DLY_ATC_PRE_2",
+          "type": "BIGINT",
+          "description": "ATC pre-departure delay.",
+          "unit": "minutes",
+          "note": "Daily TOTAL minutes \u2014 SUM across days. Avg delay/flight = SUM(DLY_ATC_PRE_2)/SUM(FLT_DEP_IFR_2)."
+        },
+        {
+          "name": "FLT_DEP_3",
+          "type": "BIGINT",
+          "description": "Departures (alt. reference period).",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "DLY_ATC_PRE_3",
+          "type": "BIGINT",
+          "description": "ATC pre-departure delay (alt. period).",
+          "unit": "minutes",
+          "note": "Daily TOTAL minutes \u2014 safe to SUM."
+        }
+      ]
+    },
+    {
+      "table": "all_pre_departure_delays",
+      "title": "All-Causes Pre-Departure Delays",
+      "description": "All-causes pre-departure delay minutes by airport and day.",
+      "granularity": "one row per airport per day",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/all_pre_departure_delays.parquet",
+      "as_of": "2026-05-31",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "VARCHAR",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DATE",
+          "type": "DATE",
+          "description": "Flight date.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_ICAO",
+          "type": "VARCHAR",
+          "description": "Airport ICAO code (e.g. 'EGLL').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_NAME",
+          "type": "VARCHAR",
+          "description": "Airport name.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_NAME",
+          "type": "VARCHAR",
+          "description": "State the airport is in (e.g. 'France').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DEP_1",
+          "type": "BIGINT",
+          "description": "Departures (all flights).",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "FLT_DEP_IFR_2",
+          "type": "BIGINT",
+          "description": "IFR departures (reference).",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "DLY_ALL_PRE_2",
+          "type": "DOUBLE",
+          "description": "All-causes pre-departure delay.",
+          "unit": "minutes",
+          "note": "Daily TOTAL minutes (all causes, not just ATC) \u2014 safe to SUM."
+        }
+      ]
+    },
+    {
+      "table": "atfm_slot_adherence",
+      "title": "ATFM Slot Adherence",
+      "description": "Adherence of departures to assigned ATFM slots, by airport and day.",
+      "granularity": "one row per airport per day",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/atfm_slot_adherence.parquet",
+      "as_of": "2026-06-14",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "BIGINT",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DATE",
+          "type": "DATE",
+          "description": "Flight date.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_ICAO",
+          "type": "VARCHAR",
+          "description": "Airport ICAO code (e.g. 'EGLL').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_NAME",
+          "type": "VARCHAR",
+          "description": "Airport name.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_NAME",
+          "type": "VARCHAR",
+          "description": "State the airport is in (e.g. 'France').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DEP_1",
+          "type": "BIGINT",
+          "description": "Departures (all flights).",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "FLT_DEP_REG_1",
+          "type": "BIGINT",
+          "description": "Departures that were ATFM-regulated.",
+          "unit": "flights",
+          "note": "Daily count \u2014 safe to SUM."
+        },
+        {
+          "name": "FLT_DEP_OUT_EARLY_1",
+          "type": "BIGINT",
+          "description": "Departed before the slot window.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "FLT_DEP_IN_1",
+          "type": "BIGINT",
+          "description": "Departed within the slot window (adherent).",
+          "unit": "flights",
+          "note": "Daily count \u2014 adherence rate = SUM(FLT_DEP_IN_1)/SUM(FLT_DEP_REG_1)."
+        },
+        {
+          "name": "FLT_DEP_OUT_LATE_1",
+          "type": "BIGINT",
+          "description": "Departed after the slot window.",
+          "unit": "flights",
+          "note": null
+        }
+      ]
+    },
+    {
+      "table": "airport_arrival_atfm_delay",
+      "title": "Airport Arrival ATFM Delays",
+      "description": "Airport arrival ATFM delay minutes, broken down by cause, per airport/day.",
+      "granularity": "one row per airport per day",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/airport_arrival_atfm_delay.parquet",
+      "as_of": "2026-05-31",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "BIGINT",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DATE",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "description": "Flight date (timestamp at midnight UTC).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_ICAO",
+          "type": "VARCHAR",
+          "description": "Airport ICAO code (e.g. 'EGLL').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_NAME",
+          "type": "VARCHAR",
+          "description": "Airport name.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_NAME",
+          "type": "VARCHAR",
+          "description": "State the airport is in (e.g. 'France').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_ARR_1",
+          "type": "BIGINT",
+          "description": "Arrivals (reference).",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_1",
+          "type": "BIGINT",
+          "description": "Total airport arrival ATFM delay.",
+          "unit": "minutes",
+          "note": "Daily TOTAL minutes \u2014 safe to SUM. The DLY_APT_ARR_*_1 columns split this by cause and sum back to it."
+        },
+        {
+          "name": "DLY_APT_ARR_A_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_C_1",
+          "type": "BIGINT",
+          "description": "Arrival delay: ATC capacity.",
+          "unit": "minutes",
+          "note": "Per-cause ATFM delay minutes by code (C=ATC capacity, S=ATC staffing, W/V=weather, G=aerodrome capacity, etc.). Monthly TOTAL minutes \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_APT_ARR_D_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_E_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_G_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_I_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_M_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_N_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_O_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_P_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_R_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_S_1",
+          "type": "BIGINT",
+          "description": "Arrival delay: ATC staffing.",
+          "unit": "minutes",
+          "note": "Per-cause ATFM delay minutes by code (C=ATC capacity, S=ATC staffing, W/V=weather, G=aerodrome capacity, etc.). Monthly TOTAL minutes \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_APT_ARR_T_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_V_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_APT_ARR_W_1",
+          "type": "BIGINT",
+          "description": "Arrival delay: weather.",
+          "unit": "minutes",
+          "note": "Per-cause ATFM delay minutes by code (C=ATC capacity, S=ATC staffing, W/V=weather, G=aerodrome capacity, etc.). Monthly TOTAL minutes \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_APT_ARR_NA_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_ARR_1_DLY",
+          "type": "BIGINT",
+          "description": "Arrivals that were delayed.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "FLT_ARR_1_DLY_15",
+          "type": "BIGINT",
+          "description": "Arrivals delayed >15 min.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "ATFM_VERSION",
+          "type": "VARCHAR",
+          "description": "",
+          "unit": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "table": "enroute_delay_ansp",
+      "title": "En-route ATFM Delays by ANSP",
+      "description": "En-route ATFM delay minutes by Air Navigation Service Provider, per day.",
+      "granularity": "one row per ANSP per day",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/enroute_delay_ansp.parquet",
+      "as_of": "2026-05-31",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "BIGINT",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DATE",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "description": "Flight date (timestamp at midnight UTC).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "ENTITY_NAME",
+          "type": "VARCHAR",
+          "description": "Name of the ANSP or FIR/country.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "ENTITY_TYPE",
+          "type": "VARCHAR",
+          "description": "Entity kind (e.g. 'ANSP (AUA)' or 'COUNTRY (FIR)').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_ERT_1",
+          "type": "BIGINT",
+          "description": "En-route flights (reference).",
+          "unit": "flights",
+          "note": "Daily count \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_ERT_1",
+          "type": "BIGINT",
+          "description": "Total en-route ATFM delay.",
+          "unit": "minutes",
+          "note": "Daily TOTAL minutes \u2014 safe to SUM. DLY_ERT_*_1 split this by cause."
+        },
+        {
+          "name": "DLY_ERT_A_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_C_1",
+          "type": "BIGINT",
+          "description": "En-route delay: ATC capacity.",
+          "unit": "minutes",
+          "note": "Per-cause ATFM delay minutes by code (C=ATC capacity, S=ATC staffing, W/V=weather, G=aerodrome capacity, etc.). Monthly TOTAL minutes \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_ERT_D_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_E_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_G_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_I_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_M_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_N_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_O_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_P_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_R_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_S_1",
+          "type": "BIGINT",
+          "description": "En-route delay: ATC staffing.",
+          "unit": "minutes",
+          "note": "Per-cause ATFM delay minutes by code (C=ATC capacity, S=ATC staffing, W/V=weather, G=aerodrome capacity, etc.). Monthly TOTAL minutes \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_ERT_T_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_V_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_W_1",
+          "type": "BIGINT",
+          "description": "En-route delay: weather.",
+          "unit": "minutes",
+          "note": "Per-cause ATFM delay minutes by code (C=ATC capacity, S=ATC staffing, W/V=weather, G=aerodrome capacity, etc.). Monthly TOTAL minutes \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_ERT_NA_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_ERT_1_DLY",
+          "type": "DOUBLE",
+          "description": "En-route flights delayed.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "FLT_ERT_1_DLY_15",
+          "type": "DOUBLE",
+          "description": "En-route flights delayed >15 min.",
+          "unit": "flights",
+          "note": null
+        }
+      ]
+    },
+    {
+      "table": "enroute_delay_fir",
+      "title": "En-route ATFM Delays by FIR",
+      "description": "En-route ATFM delay minutes by Flight Information Region / country, per day.",
+      "granularity": "one row per FIR/country per day",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/enroute_delay_fir.parquet",
+      "as_of": "2026-05-31",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "BIGINT",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_DATE",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "description": "Flight date (timestamp at midnight UTC).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "ENTITY_NAME",
+          "type": "VARCHAR",
+          "description": "Name of the ANSP or FIR/country.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "ENTITY_TYPE",
+          "type": "VARCHAR",
+          "description": "Entity kind (e.g. 'ANSP (AUA)' or 'COUNTRY (FIR)').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_ERT_1",
+          "type": "BIGINT",
+          "description": "En-route flights (reference).",
+          "unit": "flights",
+          "note": "Daily count \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_ERT_1",
+          "type": "BIGINT",
+          "description": "Total en-route ATFM delay.",
+          "unit": "minutes",
+          "note": "Daily TOTAL minutes \u2014 safe to SUM. DLY_ERT_*_1 split this by cause."
+        },
+        {
+          "name": "DLY_ERT_A_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_C_1",
+          "type": "BIGINT",
+          "description": "En-route delay: ATC capacity.",
+          "unit": "minutes",
+          "note": "Per-cause ATFM delay minutes by code (C=ATC capacity, S=ATC staffing, W/V=weather, G=aerodrome capacity, etc.). Monthly TOTAL minutes \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_ERT_D_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_E_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_G_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_I_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_M_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_N_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_O_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_P_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_R_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_S_1",
+          "type": "BIGINT",
+          "description": "En-route delay: ATC staffing.",
+          "unit": "minutes",
+          "note": "Per-cause ATFM delay minutes by code (C=ATC capacity, S=ATC staffing, W/V=weather, G=aerodrome capacity, etc.). Monthly TOTAL minutes \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_ERT_T_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_V_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "DLY_ERT_W_1",
+          "type": "BIGINT",
+          "description": "En-route delay: weather.",
+          "unit": "minutes",
+          "note": "Per-cause ATFM delay minutes by code (C=ATC capacity, S=ATC staffing, W/V=weather, G=aerodrome capacity, etc.). Monthly TOTAL minutes \u2014 safe to SUM."
+        },
+        {
+          "name": "DLY_ERT_NA_1",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "FLT_ERT_1_DLY",
+          "type": "DOUBLE",
+          "description": "En-route flights delayed.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "FLT_ERT_1_DLY_15",
+          "type": "BIGINT",
+          "description": "En-route flights delayed >15 min.",
+          "unit": "flights",
+          "note": null
+        }
+      ]
+    },
+    {
+      "table": "horizontal_flight_efficiency",
+      "title": "Horizontal Flight Efficiency",
+      "description": "Lateral (horizontal) en-route flight efficiency: flown vs. direct distance.",
+      "granularity": "one row per entity (state/FIR) per month per trajectory model",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/horizontal_flight_efficiency.parquet",
+      "as_of": "2026-05-31",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "BIGINT",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "ENTRY_DATE",
+          "type": "DATE",
+          "description": "First day of the reporting month.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "ENTITY_NAME",
+          "type": "VARCHAR",
+          "description": "State / FIR name.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "ENTITY_TYPE",
+          "type": "VARCHAR",
+          "description": "Entity kind (e.g. 'State (FIR)').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TYPE_MODEL",
+          "type": "VARCHAR",
+          "description": "Trajectory model: 'CPF' (actual) or 'FTFM' (planned).",
+          "unit": null,
+          "note": "Filter to one model (usually CPF) to avoid double counting."
+        },
+        {
+          "name": "DIST_FLOWN_KM",
+          "type": "BIGINT",
+          "description": "Distance actually flown.",
+          "unit": "km",
+          "note": "Monthly TOTAL \u2014 SUM. Efficiency ratio = SUM(DIST_DIRECT_KM)/SUM(DIST_FLOWN_KM)."
+        },
+        {
+          "name": "DIST_DIRECT_KM",
+          "type": "DOUBLE",
+          "description": "Great-circle direct distance.",
+          "unit": "km",
+          "note": "Monthly TOTAL \u2014 safe to SUM."
+        },
+        {
+          "name": "DIST_ACHIEVED_KM",
+          "type": "DOUBLE",
+          "description": "Achieved distance (KEP benchmark).",
+          "unit": "km",
+          "note": "Monthly TOTAL \u2014 safe to SUM."
+        }
+      ]
+    },
+    {
+      "table": "vertical_flight_efficiency",
+      "title": "Vertical Flight Efficiency (CCO/CDO)",
+      "description": "Climb/descent efficiency: level-off distance/time and continuous climb/descent counts.",
+      "granularity": "one row per airport per month",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/vertical_flight_efficiency.parquet",
+      "as_of": "2026-05",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "BIGINT",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_ICAO",
+          "type": "VARCHAR",
+          "description": "Airport ICAO code (e.g. 'EGLL').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_NAME",
+          "type": "VARCHAR",
+          "description": "Airport name.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_NAME",
+          "type": "VARCHAR",
+          "description": "State the airport is in (e.g. 'France').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "NBR_FLIGHTS_DESCENT",
+          "type": "BIGINT",
+          "description": "Flights analysed on descent.",
+          "unit": "flights",
+          "note": "Monthly count \u2014 safe to SUM."
+        },
+        {
+          "name": "TOT_DIST_LEVEL_NM_DESCENT",
+          "type": "DOUBLE",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOT_DIST_LVL_NM_DESC_BLW_70",
+          "type": "DOUBLE",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOT_TIME_LEVEL_SECONDS_DESCENT",
+          "type": "BIGINT",
+          "description": "Total time flown level during descent.",
+          "unit": "seconds",
+          "note": "Monthly TOTAL \u2014 safe to SUM."
+        },
+        {
+          "name": "TOT_TIME_LEVEL_SEC_DESC_BLW_70",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MEDIAN_CDO_ALT",
+          "type": "DOUBLE",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "NBR_CDO_FLIGHTS",
+          "type": "BIGINT",
+          "description": "Continuous Descent Operation flights.",
+          "unit": "flights",
+          "note": "CDO share = SUM(NBR_CDO_FLIGHTS)/SUM(NBR_FLIGHTS_DESCENT)."
+        },
+        {
+          "name": "NBR_CDO_FLIGHTS_BELOW_7000",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOT_DELTA_CO2_KG_DESCENT",
+          "type": "DOUBLE",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOT_DELTA_CO2_KG_DESC_BLW_70",
+          "type": "DOUBLE",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "NBR_FLIGHTS_CLIMB",
+          "type": "BIGINT",
+          "description": "Flights analysed on climb.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "TOT_DIST_LEVEL_NM_CLIMB",
+          "type": "DOUBLE",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOT_DIST_LVL_NM_CLIMB_BLW_100",
+          "type": "DOUBLE",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOT_TIME_LEVEL_SECONDS_CLIMB",
+          "type": "BIGINT",
+          "description": "Total time flown level during climb.",
+          "unit": "seconds",
+          "note": "Monthly TOTAL \u2014 safe to SUM."
+        },
+        {
+          "name": "TOT_TIME_LVL_SEC_CLIMB_BLW_100",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MEDIAN_CCO_ALT",
+          "type": "DOUBLE",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "NBR_CCO_FLIGHTS",
+          "type": "BIGINT",
+          "description": "Continuous Climb Operation flights.",
+          "unit": "flights",
+          "note": "CCO share = SUM(NBR_CCO_FLIGHTS)/SUM(NBR_FLIGHTS_CLIMB)."
+        },
+        {
+          "name": "NBR_CCO_FLIGHTS_BELOW_10000",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOT_DELTA_CO2_KG_CLIMB",
+          "type": "DOUBLE",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOT_DELTA_CO2_KG_CLIMB_BLW_100",
+          "type": "DOUBLE",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "AIRPORT_NAME",
+          "type": "VARCHAR",
+          "description": "",
+          "unit": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "table": "taxi_in_additional_time",
+      "title": "Additional Taxi-In Time",
+      "description": "Additional taxi-in (arrival ground) time vs. an unimpeded reference, per airport/month.",
+      "granularity": "one row per airport per month",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/taxi_in_additional_time.parquet",
+      "as_of": "2026-04",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "VARCHAR",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_ICAO",
+          "type": "VARCHAR",
+          "description": "Airport ICAO code (e.g. 'EGLL').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_NAME",
+          "type": "VARCHAR",
+          "description": "Airport name.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_NAME",
+          "type": "VARCHAR",
+          "description": "State the airport is in (e.g. 'France').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TF",
+          "type": "BIGINT",
+          "description": "Total flights at the airport in the month.",
+          "unit": "flights",
+          "note": "Monthly TOTAL \u2014 safe to SUM."
+        },
+        {
+          "name": "VALID_FL",
+          "type": "BIGINT",
+          "description": "Flights with valid data for the metric.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "NO_REF",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOTAL_REF_NB_FL",
+          "type": "BIGINT",
+          "description": "Flights matched to a reference group.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "TOTAL_REF_TIME_MIN",
+          "type": "DOUBLE",
+          "description": "Total reference (unimpeded) taxi-in time.",
+          "unit": "minutes",
+          "note": "Monthly TOTAL \u2014 safe to SUM."
+        },
+        {
+          "name": "TOTAL_ADD_TIME_MIN",
+          "type": "DOUBLE",
+          "description": "Total ADDITIONAL taxi-in time vs. the unimpeded reference.",
+          "unit": "minutes",
+          "note": "Monthly TOTAL additional minutes \u2014 SUM across months/airports. Additional time per flight = SUM(TOTAL_ADD_TIME_MIN)/SUM(TOTAL_REF_NB_FL)."
+        },
+        {
+          "name": "COMMENT",
+          "type": "VARCHAR",
+          "description": "",
+          "unit": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "table": "taxi_out_additional_time",
+      "title": "Additional Taxi-Out Time",
+      "description": "Additional taxi-out (departure ground) time vs. an unimpeded reference, per airport/month.",
+      "granularity": "one row per airport per month",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/taxi_out_additional_time.parquet",
+      "as_of": "2026-04",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "VARCHAR",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_ICAO",
+          "type": "VARCHAR",
+          "description": "Airport ICAO code (e.g. 'EGLL').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_NAME",
+          "type": "VARCHAR",
+          "description": "Airport name.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_NAME",
+          "type": "VARCHAR",
+          "description": "State the airport is in (e.g. 'France').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TF",
+          "type": "BIGINT",
+          "description": "Total flights at the airport in the month.",
+          "unit": "flights",
+          "note": "Monthly TOTAL \u2014 safe to SUM."
+        },
+        {
+          "name": "VALID_FL",
+          "type": "BIGINT",
+          "description": "Flights with valid data for the metric.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "NO_REF",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOTAL_REF_NB_FL",
+          "type": "BIGINT",
+          "description": "Flights matched to a reference group.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "TOTAL_REF_TIME_MIN",
+          "type": "DOUBLE",
+          "description": "Total reference (unimpeded) taxi-out time.",
+          "unit": "minutes",
+          "note": "Monthly TOTAL \u2014 safe to SUM."
+        },
+        {
+          "name": "TOTAL_ADD_TIME_MIN",
+          "type": "DOUBLE",
+          "description": "Total ADDITIONAL taxi-out time vs. the unimpeded reference.",
+          "unit": "minutes",
+          "note": "Monthly TOTAL additional minutes \u2014 SUM across months/airports. Additional time per flight = SUM(TOTAL_ADD_TIME_MIN)/SUM(TOTAL_REF_NB_FL)."
+        },
+        {
+          "name": "COMMENT",
+          "type": "VARCHAR",
+          "description": "",
+          "unit": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "table": "asma_additional_time",
+      "title": "Additional ASMA Time",
+      "description": "Additional arrival sequencing & metering (ASMA) time vs. an unimpeded reference.",
+      "granularity": "one row per airport per month",
+      "parquet_path": "/Users/quintengoens/Repos/aiu-chat/data/parquet/asma_additional_time.parquet",
+      "as_of": "2026-04",
+      "columns": [
+        {
+          "name": "YEAR",
+          "type": "BIGINT",
+          "description": "Calendar year.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_NUM",
+          "type": "VARCHAR",
+          "description": "Calendar month number (1-12).",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "MONTH_MON",
+          "type": "VARCHAR",
+          "description": "Three-letter month abbreviation (e.g. 'JAN').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_ICAO",
+          "type": "VARCHAR",
+          "description": "Airport ICAO code (e.g. 'EGLL').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "APT_NAME",
+          "type": "VARCHAR",
+          "description": "Airport name.",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "STATE_NAME",
+          "type": "VARCHAR",
+          "description": "State the airport is in (e.g. 'France').",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TF",
+          "type": "BIGINT",
+          "description": "Total flights at the airport in the month.",
+          "unit": "flights",
+          "note": "Monthly TOTAL \u2014 safe to SUM."
+        },
+        {
+          "name": "VALID_FL",
+          "type": "BIGINT",
+          "description": "Flights with valid data for the metric.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "NO_REF",
+          "type": "BIGINT",
+          "description": "",
+          "unit": null,
+          "note": null
+        },
+        {
+          "name": "TOTAL_REF_NB_FL",
+          "type": "BIGINT",
+          "description": "Flights matched to a reference group.",
+          "unit": "flights",
+          "note": null
+        },
+        {
+          "name": "TOTAL_REF_TIME_MIN",
+          "type": "DOUBLE",
+          "description": "Total reference (unimpeded) ASMA arrival time.",
+          "unit": "minutes",
+          "note": "Monthly TOTAL \u2014 safe to SUM."
+        },
+        {
+          "name": "TOTAL_ADD_TIME_MIN",
+          "type": "DOUBLE",
+          "description": "Total ADDITIONAL ASMA arrival time vs. the unimpeded reference.",
+          "unit": "minutes",
+          "note": "Monthly TOTAL additional minutes \u2014 SUM across months/airports. Additional time per flight = SUM(TOTAL_ADD_TIME_MIN)/SUM(TOTAL_REF_NB_FL)."
+        },
+        {
+          "name": "COMMENT",
+          "type": "VARCHAR",
+          "description": "",
+          "unit": null,
+          "note": null
+        }
+      ]
+    }
+  ]
+}
