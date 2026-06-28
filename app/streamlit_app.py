@@ -77,13 +77,20 @@ _CSS = """
 }
 .aiu-chip.src { background:#F4F7FB; color:#46566B; font-weight:500; }
 
-/* Suggestion buttons: equal-sized, aligned boxes. */
+/* Suggestion grid: single-line column titles so rows stay aligned. */
+.aiu-sugg-title {
+    font-weight:700; font-size:.9rem; color:#1A2433;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    height:1.6rem; line-height:1.6rem; margin-bottom:.4rem;
+}
+
+/* Suggestion buttons: equal-sized boxes tall enough for three lines of text. */
 div[data-testid="stExpander"] .stButton > button {
-    display:flex; align-items:center; text-align:left;
-    min-height:4.2rem; width:100%; white-space:normal; line-height:1.25;
-    padding:.55rem .7rem; margin-bottom:.1rem;
+    display:flex; align-items:flex-start; text-align:left;
+    height:5.6rem; width:100%; white-space:normal; line-height:1.3;
+    padding:.6rem .7rem; margin-bottom:.45rem; overflow:hidden;
     border:1px solid #D9E2F0; border-radius:.6rem; background:#FBFCFE;
-    font-weight:400; font-size:.85rem; transition:all .12s ease;
+    font-weight:400; font-size:.84rem; transition:all .12s ease;
 }
 div[data-testid="stExpander"] .stButton > button:hover {
     border-color:#1565C0; background:#EEF3FB; transform:translateY(-1px);
@@ -105,7 +112,7 @@ def _chip(text: str, kind: str = "", url: str | None = None) -> str:
 # each with a few example questions that exercise the different sources.
 SUGGESTIONS = [
     (
-        "🟢 Live now (real-time)",
+        "🟢 Live now",
         [
             "How many aircraft are airborne right now?",
             "Which areas have the most delay right now?",
@@ -113,7 +120,7 @@ SUGGESTIONS = [
         ],
     ),
     (
-        "📅 Latest daily (D-1)",
+        "📅 Latest daily",
         [
             "How many flights did France have on the latest day?",
             "What is the latest daily ATFM delay for DSNA?",
@@ -129,11 +136,10 @@ SUGGESTIONS = [
         ],
     ),
     (
-        "📡 Network ops & methodology",
+        "📡 Network ops",
         [
             "What's the current tactical situation on the network?",
             "Any airport regulations or airspace issues right now?",
-            "What does ATFM stand for?",
             "How is additional ASMA time calculated?",
         ],
     ),
@@ -240,13 +246,15 @@ def _render_turn(turn, idx):
 
 
 def _render_suggestions():
-    """Topic cards with example questions; clicking one asks it. Returns the
-    chosen question, or None."""
+    """Topic cards with example questions arranged in an aligned grid; clicking
+    one asks it. Returns the chosen question, or None."""
     chosen = None
-    cols = st.columns(len(SUGGESTIONS))
+    cols = st.columns(len(SUGGESTIONS), gap="small")
     for col, (topic, questions) in zip(cols, SUGGESTIONS):
         with col:
-            st.markdown(f"**{topic}**")
+            # Fixed single-line title so columns stay row-aligned regardless of
+            # title length.
+            st.markdown(f'<div class="aiu-sugg-title">{topic}</div>', unsafe_allow_html=True)
             for j, q in enumerate(questions):
                 if st.button(q, key=f"sugg_{topic}_{j}", use_container_width=True):
                     chosen = q
