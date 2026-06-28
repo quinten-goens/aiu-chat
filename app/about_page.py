@@ -52,7 +52,6 @@ The genuinely live network picture behind
 aircraft airborne right now, current total network delay, the most-delayed area
 control centres, and active ATFM regulations.
 
-> **Unofficial tool — not affiliated with or endorsed by EUROCONTROL.**
 > Data © EUROCONTROL AIU. Answers are model-generated and may contain errors.
 """
     )

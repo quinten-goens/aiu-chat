@@ -1,0 +1,18 @@
+# Aviation-blue theme for Aviation Intelligence + Chat.
+[theme]
+base = "light"
+primaryColor = "#1565C0"               # aviation blue — buttons, accents
+backgroundColor = "#FFFFFF"            # clean canvas
+secondaryBackgroundColor = "#EEF3FB"   # soft blue-grey — cards, sidebar, code
+textColor = "#1A2433"                  # deep slate, high legibility
+linkColor = "#1565C0"
+borderColor = "#D9E2F0"                # subtle blue-grey borders
+baseRadius = "0.6rem"                  # softer corners
+showWidgetBorder = true                # gentle borders around inputs/containers
+font = "sans serif"
+headingFont = "sans serif"
+# Charts inherit the palette so Plotly figures match the theme.
+chartCategoricalColors = ["#1565C0", "#00897B", "#F9A825", "#8E24AA", "#D81B60", "#5E6B7E"]
+
+[client]
+toolbarMode = "minimal"                # hide the dev/deploy clutter
