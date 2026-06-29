@@ -12,23 +12,24 @@ def render():
         "A hybrid AI assistant for European air navigation performance data."
     )
 
-    if config.LOCAL:
-        reasoning = (
-            "It runs **fully locally** for reasoning — the language models run "
-            "on-device via Ollama (no data leaves your machine for the LLM)."
-        )
-    else:
-        reasoning = (
-            "Reasoning is powered by **OpenAI GPT models** (selectable in the "
-            "sidebar). Your questions and the retrieved data are sent to the "
-            "OpenAI API to generate answers."
-        )
+    llm_phrase = (
+        "a local model running on-device via Ollama"
+        if config.LOCAL
+        else "an OpenAI GPT model"
+    )
 
     st.markdown(
         f"""
 This app answers questions about European Air Navigation Services (ANS)
-performance. {reasoning} It pulls from a mix of **datasets** and **live APIs**,
-routing each question to the right source.
+performance, built on the **data and expertise of the EUROCONTROL Aviation
+Intelligence Unit (AIU)**.
+
+The substance comes from the AIU: authoritative datasets and live operational
+sources, a **smart routing system** that sends each question to the right one,
+and **deterministic SQL and retrieval** so figures are read straight from the
+data — never made up. {llm_phrase.capitalize()} is used only as the language
+layer: it turns your question into a query and the results into a readable
+answer. The numbers and facts come from the AIU data, not the model.
 """
     )
 
@@ -102,21 +103,25 @@ the **as-of date** of the data.
 
     if config.LOCAL:
         llm_line = (
-            "- **LLM (local):** [Ollama](https://ollama.com) running on-device — "
-            "pick a mode in the sidebar: **⚡ Fast** (qwen3.5:4b) or **🧠 Smart** "
-            f"(qwen3.5:9b). Embeddings use `{config.EMBEDDING_MODEL}` locally. "
-            "Nothing is sent to a cloud LLM."
+            "- **Language layer (local):** a [Ollama](https://ollama.com) model "
+            "running on-device — **⚡ Fast** (qwen3.5:4b) or **🧠 Smart** "
+            f"(qwen3.5:9b), selectable in the sidebar. Embeddings use "
+            f"`{config.EMBEDDING_MODEL}`. It only writes queries and phrases the "
+            "results — the data does the answering."
         )
     else:
         llm_line = (
-            "- **LLM (cloud):** [OpenAI](https://openai.com) GPT models — pick a "
-            "mode in the sidebar (**Fast** / **Balanced** / **Max**). Embeddings "
-            f"use OpenAI `{config.EMBEDDING_MODEL}`. Questions and the retrieved "
-            "data are sent to the OpenAI API to generate answers."
+            "- **Language layer (cloud):** an [OpenAI](https://openai.com) GPT "
+            "model (**Fast** / **Balanced** / **Max**, selectable in the sidebar), "
+            f"with OpenAI `{config.EMBEDDING_MODEL}` embeddings. It only writes "
+            "queries and phrases the results — the AIU data does the answering."
         )
 
     st.markdown(
         f"""
+- **AIU data & routing (the core):** EUROCONTROL Aviation Intelligence Unit
+  datasets and live sources, with a routing system that picks the right one per
+  question and answers from the data — not from the model's memory.
 {llm_line}
 - **Data + vectors:** [DuckDB](https://duckdb.org) holds the datasets and, via
   its VSS extension, the document vector index — one engine for both.
