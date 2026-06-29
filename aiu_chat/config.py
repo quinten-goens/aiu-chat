@@ -119,7 +119,7 @@ if LOCAL:
     DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "fast")
 else:
     MODEL_TIERS = dict(_OPENAI_TIERS)
-    DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "gpt_mini")
+    DEFAULT_TIER = os.getenv("AIU_MODEL_TIER", "gpt_max")
 # Context window cap. Some models default to a 256K context that inflates memory
 # to ~20GB and slows generation dramatically; our prompts are small.
 OLLAMA_NUM_CTX = int(os.getenv("AIU_OLLAMA_NUM_CTX", "8192"))
