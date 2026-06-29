@@ -132,3 +132,9 @@ Built and tested in vertical slices, with a gold evaluation set that scores
 answers and routing against known-correct cases.
 """
     )
+
+    st.divider()
+    st.markdown(
+        "**Developed by** Quinten Goens · ATD/AIU/OPS  \n"
+        "[quinten.goens@eurocontrol.int](mailto:quinten.goens@eurocontrol.int)"
+    )

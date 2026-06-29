@@ -310,11 +310,10 @@ def _sidebar_controls():
         )
         st.caption(config.MODEL_TIERS[tier]["blurb"])
 
-        # Developer attribution + data disclaimer at the bottom.
+        # Contact details + data disclaimer at the bottom.
         st.divider()
         st.caption(
-            "**Developed by**  \n"
-            "Quinten Goens · ATD/AIU/OPS  \n"
+            "**Issues or feedback?**  \n"
             "[quinten.goens@eurocontrol.int](mailto:quinten.goens@eurocontrol.int)"
         )
         st.divider()
