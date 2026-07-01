@@ -164,7 +164,7 @@ class SessionRow:
 
 def _list(session: requests.Session, token: str, collection: str, *,
           per_page: int = 200, page: int = 1, filt: str = "", sort: str = "",
-          expand: str = "") -> dict:
+          expand: str = "", fields: str = "") -> dict:
     params = {"perPage": per_page, "page": page}
     if filt:
         params["filter"] = filt
@@ -172,6 +172,8 @@ def _list(session: requests.Session, token: str, collection: str, *,
         params["sort"] = sort
     if expand:
         params["expand"] = expand
+    if fields:
+        params["fields"] = fields
     url = f"{config.PB_CHAT_URL}/api/collections/{collection}/records"
     try:
         r = session.get(
@@ -225,5 +227,44 @@ def recent_turns(*, limit: int = 200, search: str = "") -> list[dict]:
             filt = f'question ~ "{esc}" || answer ~ "{esc}" || sql ~ "{esc}"'
         data = _list(s, token, TURNS, per_page=limit, filt=filt, sort="-created")
         return data.get("items", [])
+    finally:
+        s.close()
+
+
+# --- analytics (viewer, superuser) -----------------------------------------
+def count(collection: str, *, filt: str = "") -> int:
+    """Exact record count via PocketBase's totalItems (perPage=1). Viewer-only."""
+    s = requests.Session()
+    try:
+        token = _admin_token(s)
+        data = _list(s, token, collection, per_page=1, filt=filt)
+        return int(data.get("totalItems", 0))
+    finally:
+        s.close()
+
+
+def fetch_all(collection: str, *, fields: str = "", filt: str = "",
+              sort: str = "-created", page_size: int = 500,
+              max_records: int = 20000) -> list[dict]:
+    """Fetch all records of a collection (paged), returning a slim projection.
+
+    `fields` limits the columns pulled (e.g. "route,created,latency_ms") so
+    analytics never drags down big result_table/answer blobs. Capped by
+    `max_records` as a safety valve. Viewer-only (superuser token).
+    """
+    s = requests.Session()
+    out: list[dict] = []
+    try:
+        token = _admin_token(s)
+        page = 1
+        while len(out) < max_records:
+            data = _list(s, token, collection, per_page=page_size, page=page,
+                         filt=filt, sort=sort, fields=fields)
+            items = data.get("items", [])
+            out.extend(items)
+            if page >= int(data.get("totalPages", 1)) or not items:
+                break
+            page += 1
+        return out[:max_records]
     finally:
         s.close()

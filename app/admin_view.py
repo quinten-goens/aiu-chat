@@ -12,12 +12,12 @@ the app), so this page needs PB_ADMIN_USER_* to be configured.
 from __future__ import annotations
 
 import hmac
-import json
 
 import pandas as pd
 import streamlit as st
 
 from aiu_chat import config
+from aiu_chat.agent import analytics
 from aiu_chat.agent.chart import make_chart
 from aiu_chat.sources import chatlog
 
@@ -121,6 +121,98 @@ def _render_turn(t: dict, i: int) -> None:
     st.divider()
 
 
+# Human-readable route names for the analytics breakdown.
+_ROUTE_LABELS = {
+    "data": "📊 Historical data", "concept": "📖 Concept / methodology",
+    "both": "📊+📖 Data + concept", "nop": "📡 NOP messages",
+    "dataapp": "📅 Latest daily (D-1)", "nm_live": "🟢 Real-time network",
+    "catalog": "🗂️ Data catalogue", "none": "🚫 Out of scope",
+    "unknown": "❔ Unknown",
+}
+
+
+@st.cache_data(ttl=120, show_spinner="Crunching analytics…")
+def _load_analytics_rows():
+    """Fetch slim turn rows + exact totals (cached briefly to avoid re-hitting
+    PocketBase on every widget interaction)."""
+    turns = chatlog.fetch_all(
+        chatlog.TURNS,
+        fields="id,route,error,needs_clarification,latency_ms,created,question",
+    )
+    total_sessions = chatlog.count(chatlog.SESSIONS)
+    return turns, total_sessions
+
+
+def _render_analytics() -> None:
+    top_row = st.columns([1, 3])
+    if top_row[0].button("↻ Refresh", key="av_refresh_analytics"):
+        _load_analytics_rows.clear()
+
+    try:
+        turns, total_sessions = _load_analytics_rows()
+    except chatlog.ChatLogError as exc:
+        st.error(f"Could not read analytics: {exc}")
+        return
+
+    if not turns:
+        st.info("No conversations logged yet. Analytics will appear once people "
+                "start asking questions.")
+        return
+
+    a = analytics.compute(turns, total_sessions=total_sessions)
+
+    # --- headline metrics ---
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Conversations", f"{a.total_sessions:,}")
+    c2.metric("Questions (turns)", f"{a.total_turns:,}")
+    c3.metric("Turns / conversation", a.turns_per_session)
+    c4.metric("Error rate", f"{a.error_rate:.1%}")
+
+    c5, c6, c7, c8 = st.columns(4)
+    c5.metric("Clarifying asks", f"{a.clarification_count:,}")
+    c6.metric("Median latency",
+              f"{a.median_latency_ms/1000:.1f} s" if a.median_latency_ms else "—")
+    c7.metric("Avg latency",
+              f"{a.avg_latency_ms/1000:.1f} s" if a.avg_latency_ms else "—")
+    c8.metric("Est. OpenAI requests", f"{a.estimated_openai_requests:,}")
+
+    st.caption(
+        "OpenAI-request estimate uses the per-route call fan-out (data ≈ 4–5 "
+        "requests/question, concept ≈ 3). Use it to translate your OpenAI "
+        "dashboard's request count into questions."
+    )
+
+    st.divider()
+
+    # --- route distribution + activity over time ---
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**Questions by route**")
+        if a.route_counts:
+            rdf = pd.DataFrame(
+                [(_ROUTE_LABELS.get(k, k), v) for k, v in a.route_counts.items()],
+                columns=["Route", "Questions"],
+            ).set_index("Route")
+            st.bar_chart(rdf, horizontal=True)
+    with right:
+        st.markdown("**Activity over time**")
+        if a.per_day:
+            ddf = pd.DataFrame(a.per_day, columns=["Date", "Questions"])
+            rdf2 = pd.DataFrame(a.requests_per_day, columns=["Date", "Est. requests"])
+            merged = ddf.merge(rdf2, on="Date", how="left").set_index("Date")
+            st.line_chart(merged)
+
+    st.divider()
+
+    # --- top questions ---
+    st.markdown("**Most-asked questions**")
+    if a.top_questions:
+        qdf = pd.DataFrame(a.top_questions, columns=["Question", "Times asked"])
+        st.dataframe(qdf, use_container_width=True, hide_index=True)
+    else:
+        st.caption("No repeated questions yet.")
+
+
 def render() -> None:
     if not _authed():
         return
@@ -128,7 +220,13 @@ def render() -> None:
     st.title("🗂️ Conversation viewer")
     st.caption("All logged conversations. Hidden, password-protected, read-only.")
 
-    tab_sessions, tab_turns = st.tabs(["By conversation", "All turns (search)"])
+    tab_analytics, tab_sessions, tab_turns = st.tabs(
+        ["📊 Analytics", "By conversation", "All turns (search)"]
+    )
+
+    # --- analytics summary ---
+    with tab_analytics:
+        _render_analytics()
 
     # --- browse by conversation ---
     with tab_sessions:
