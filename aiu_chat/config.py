@@ -148,6 +148,37 @@ PB_NOP_URL = os.getenv("PB_NOP_URL", "https://aiu-nop.pockethost.io").rstrip("/"
 PB_NOP_USER_EMAIL = os.getenv("PB_NOP_USER_EMAIL", "")
 PB_NOP_USER_PASSWORD = os.getenv("PB_NOP_USER_PASSWORD", "")
 
+# --- Chat logging (PocketBase) ---------------------------------------------
+# Every turn is persisted to a separate PocketBase instance for analysis. The
+# app authenticates as a dedicated, create-only "log user" (never the superuser),
+# so a leaked deployment secret can only append records, not read/delete them.
+PB_CHAT_URL = os.getenv("PB_CHAT_URL", "https://aiu-chat.pockethost.io").rstrip("/")
+PB_CHAT_USER_EMAIL = os.getenv("PB_CHAT_USER_EMAIL", "")
+PB_CHAT_USER_PASSWORD = os.getenv("PB_CHAT_USER_PASSWORD", "")
+# Superuser creds — used ONLY by the hidden admin viewer to read logs. Never
+# needed by the chat app itself. Keep out of the public deployment's secrets if
+# you don't use the built-in viewer there.
+PB_ADMIN_USER_EMAIL = os.getenv("PB_ADMIN_USER_EMAIL", "")
+PB_ADMIN_USER_PASSWORD = os.getenv("PB_ADMIN_USER_PASSWORD", "")
+# Master switch: set to false to disable all chat logging.
+CHAT_LOGGING = os.getenv("AIU_CHAT_LOGGING", "true").lower() in ("1", "true", "yes")
+
+# --- Hidden admin viewer ---------------------------------------------------
+# Reached only via a secret query slug AND a separate password (security by
+# obscurity + auth). Not listed in the app navigation.
+ADMIN_VIEW_SLUG = os.getenv("AIU_ADMIN_VIEW_SLUG", "")
+ADMIN_VIEW_PASSWORD = os.getenv("AIU_ADMIN_VIEW_PASSWORD", "")
+
+
+def chat_logging_configured() -> bool:
+    """True if chat logging is enabled and the log-user credentials are set."""
+    return bool(CHAT_LOGGING and PB_CHAT_USER_EMAIL and PB_CHAT_USER_PASSWORD)
+
+
+def admin_viewer_configured() -> bool:
+    """True if the hidden viewer has both a slug and a password set."""
+    return bool(ADMIN_VIEW_SLUG and ADMIN_VIEW_PASSWORD)
+
 # --- EUROCONTROL Data App API ----------------------------------------------
 # NOTE: this API is D-1 (yesterday's daily figures), not real-time.
 DATAAPP_BASE = os.getenv("AIU_DATAAPP_BASE", "https://api-data-app.eurocontrol.int/api").rstrip("/")

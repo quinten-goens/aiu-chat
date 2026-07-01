@@ -8,6 +8,7 @@ Run: streamlit run app/streamlit_app.py
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -18,6 +19,8 @@ from aiu_chat.agent.catalog import get_catalog
 from aiu_chat.agent.chart import make_chart
 from aiu_chat.agent.llm import OllamaError, OpenAIError, build_client
 from aiu_chat.agent.orchestrator import answer
+from aiu_chat.agent.turn_log import build_turn_record
+from aiu_chat.sources import chatlog
 
 def check_password():
     if st.session_state.get("authenticated", False):
@@ -74,6 +77,11 @@ st.markdown(
 DISCLAIMER = (
     "Data © EUROCONTROL Aviation Intelligence Unit ([ansperformance.eu](https://ansperformance.eu)). "
     "Always verify: the assistant may pick the wrong data source or misinterpret it."
+)
+
+# Shown when logging is on so users know conversations are recorded (quiet, brief).
+LOGGING_NOTICE = (
+    "Conversations are recorded for quality and analysis."
 )
 
 # A small, scoped style refresh (kept minimal so it survives Streamlit updates).
@@ -317,8 +325,91 @@ def _sidebar_controls():
             "[quinten.goens@eurocontrol.int](mailto:quinten.goens@eurocontrol.int)"
         )
         st.divider()
-        st.caption(f"**Data & disclaimer**  \n{DISCLAIMER}")
+        notice = DISCLAIMER
+        if config.chat_logging_configured():
+            notice += f"  \n{LOGGING_NOTICE}"
+        st.caption(f"**Data & disclaimer**  \n{notice}")
     return tier
+
+
+def _ensure_log_session(tier: str):
+    """Capture the browser fingerprint and create the logging session once.
+
+    Returns (fingerprint_dict, session_record_id | None). Entirely best-effort:
+    any failure returns a minimal fingerprint so chat continues unaffected.
+    """
+    if not config.chat_logging_configured():
+        return {}, None
+    try:
+        from fingerprint import get_fingerprint
+
+        fp = get_fingerprint()
+    except Exception:
+        fp = {"session_id": st.session_state.get("session_id", "")}
+
+    # Create the session record once per browser conversation.
+    if "log_session_created" not in st.session_state:
+        try:
+            now = _iso_now()
+            rid = chatlog.ensure_session(
+                fp.get("session_id", ""),
+                {
+                    "started_at": now,
+                    "last_seen_at": now,
+                    "app_mode": "local" if config.LOCAL else "cloud",
+                    "model_tier": tier,
+                    "user_agent": fp.get("user_agent", ""),
+                    "languages": fp.get("languages", ""),
+                    "timezone": fp.get("timezone", ""),
+                    "screen": fp.get("screen", ""),
+                    "platform": fp.get("platform", ""),
+                    "browser_id": fp.get("browser_id", ""),
+                    "fingerprint_hash": fp.get("fingerprint_hash", ""),
+                    "extra": {k: fp.get(k) for k in
+                              ("hardware_concurrency", "device_memory") if fp.get(k) is not None},
+                },
+            )
+            st.session_state["log_session_created"] = True
+            st.session_state["log_session_record_id"] = rid
+        except Exception:
+            # Never let logging setup break the app.
+            st.session_state["log_session_created"] = True
+            st.session_state["log_session_record_id"] = None
+
+    return fp, st.session_state.get("log_session_record_id")
+
+
+def _iso_now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%fZ")
+
+
+def _log_turn_safe(turn, *, fp, session_record_id, tier, latency_ms, error=None):
+    """Serialize + append one turn. Best-effort; never raises into the UI."""
+    if not config.chat_logging_configured():
+        return
+    try:
+        record = build_turn_record(
+            turn,
+            turn_index=len(st.session_state.get("history", [])),
+            model_tier=tier,
+            latency_ms=latency_ms,
+            error=error,
+        ) if turn is not None else {
+            "turn_index": len(st.session_state.get("history", [])),
+            "created_at": _iso_now(),
+            "model_tier": tier or "",
+            "error": (error or "")[:20000],
+            "latency_ms": int(latency_ms) if latency_ms is not None else None,
+        }
+        chatlog.log_turn(
+            session_id=fp.get("session_id", ""),
+            session_record_id=session_record_id,
+            turn=record,
+        )
+    except Exception:
+        pass  # logging must never surface to the user
 
 
 def main():
@@ -339,6 +430,9 @@ def main():
         st.stop()
 
     tier = _sidebar_controls()
+
+    # Capture the browser fingerprint + open a logging session (best-effort).
+    fp, session_record_id = _ensure_log_session(tier)
 
     # Chat history (Turn objects) lives in session state and feeds follow-ups.
     if "messages" not in st.session_state:
@@ -380,6 +474,8 @@ def main():
                     status_box.write(detail)
                 status_box.update(label=label)
 
+            _t0 = time.monotonic()
+            _err = None
             try:
                 turn = answer(
                     prompt,
@@ -393,6 +489,16 @@ def main():
                 status_box.update(label="Failed", state="error")
                 st.error(f"Could not reach the model: {exc}")
                 turn = None
+                _err = str(exc)
+            _latency_ms = int((time.monotonic() - _t0) * 1000)
+
+            # Log the turn (best-effort) before mutating history, so turn_index
+            # reflects this turn's position.
+            _log_turn_safe(
+                turn, fp=fp, session_record_id=session_record_id,
+                tier=tier, latency_ms=_latency_ms, error=_err,
+            )
+
             if turn is not None:
                 _render_turn(turn, idx=len(st.session_state.messages))
                 st.session_state.history.append(turn)
@@ -401,12 +507,26 @@ def main():
                 )
 
 
+def _admin():
+    import admin_view
+
+    admin_view.render()
+
+
 # Explicit multi-page navigation so the sidebar labels are clean
 # ("Aviation Intelligence + Chat" / "About"), not derived from filenames.
-_nav = st.navigation(
-    [
-        st.Page(main, title="Aviation Intelligence + Chat", icon="✈️", default=True),
-        st.Page(_about, title="About", icon="ℹ️"),
-    ]
-)
+_pages = [
+    st.Page(main, title="Aviation Intelligence + Chat", icon="✈️", default=True),
+    st.Page(_about, title="About", icon="ℹ️"),
+]
+
+# Hidden viewer: only exposed as a route when the URL carries the secret slug, so
+# it never shows in the nav for ordinary users (obscurity) and is password-gated.
+if (
+    config.admin_viewer_configured()
+    and st.query_params.get("view") == config.ADMIN_VIEW_SLUG
+):
+    _pages.append(st.Page(_admin, title="Viewer", icon="🗂️"))
+
+_nav = st.navigation(_pages)
 _nav.run()

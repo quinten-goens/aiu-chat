@@ -138,6 +138,16 @@ answers and routing against known-correct cases.
 """
     )
 
+    if config.chat_logging_configured():
+        st.divider()
+        st.header("Privacy")
+        st.markdown(
+            "Conversations are **recorded for quality and analysis** — the questions "
+            "asked, the answers given, and basic technical details about your browser "
+            "(so returning sessions can be recognised). Nothing you type leaves this "
+            "purpose. Please don't enter personal or sensitive information."
+        )
+
     st.divider()
     st.markdown(
         "**Developed by** Quinten Goens · ATD/AIU/OPS  \n"
