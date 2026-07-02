@@ -90,7 +90,7 @@ def test_dataapp_answer_happy_path():
     )
     ans = answer_dataapp_question(
         "flights in France today?", client=client,
-        fetch=lambda metric, kind, entity: result,
+        fetch=lambda metric, kind, entity, date=None: result,
     )
     assert ans.ok
     assert ans.result.entity.name == "France"

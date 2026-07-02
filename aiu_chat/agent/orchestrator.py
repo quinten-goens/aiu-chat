@@ -209,7 +209,11 @@ def answer(
     route, SQL, sources) — surfaced live in the UI. Thinking mode is off, so this
     shows the real per-step artifacts, not a chain-of-thought.
     """
-    client = client or OllamaClient()
+    # Default client is provider-aware: honours LOCAL/AIU_MODEL_TIER so the same
+    # entry point runs on local Ollama or cloud OpenAI without code changes.
+    if client is None:
+        from aiu_chat.agent.llm import build_client
+        client = build_client()
     catalog = catalog or get_catalog()
     history = history or []
 
@@ -293,11 +297,19 @@ def answer(
         status("Fetching NOP messages…", f"Found {len(turn.nop.messages)} relevant message(s)")
     if "dataapp" in routes:
         turn.dataapp = answer_dataapp_question(standalone, client=client)
-        ent = turn.dataapp.result.entity.name if turn.dataapp.result else None
-        logger.info("  dataapp ok=%s entity=%s", turn.dataapp.ok, ent)
-        if ent:
-            status("Looking up the latest daily figures…",
-                   f"Resolved entity: **{ent}** (Data App, D-1)")
+        da = turn.dataapp
+        if da.ranking is not None:
+            detail = (f"Ranking: **{da.ranking.category}** by {da.ranking.metric} "
+                      f"(scope: {da.ranking.scope}, {da.ranking.sync_date})")
+        elif da.network is not None:
+            detail = f"Network **{da.network.metric}** as of {da.network.sync_date}"
+        elif da.result is not None:
+            detail = f"Resolved entity: **{da.result.entity.name}** (Data App, D-1)"
+        else:
+            detail = None
+        logger.info("  dataapp ok=%s | %s", da.ok, detail)
+        if detail:
+            status("Looking up the Data App figures…", detail)
     if "nm_live" in routes:
         turn.nm_live = answer_nm_question(standalone, client=client)
         logger.info("  nm_live ok=%s", turn.nm_live.ok)

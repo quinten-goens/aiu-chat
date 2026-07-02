@@ -38,3 +38,6 @@ include = ["aiu_chat*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "live: hits the live EUROCONTROL Data App API (network required; deselect with -m 'not live')",
+]

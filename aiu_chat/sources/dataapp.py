@@ -1,19 +1,20 @@
-"""EUROCONTROL Data App API client with a deterministic 3-hop resolver.
+"""EUROCONTROL Data App API client with deterministic resolvers.
 
-The API keys metric data by a per-stakeholder, per-date "sync". Resolving a named
-entity to data takes up to three calls (see docs/dataapp_api.md):
+The API keys metric data by a per-stakeholder, per-DAY "sync". Everything hangs
+off a sync id, so answering a question is a matter of picking the right sync and
+then reading the right metric/ranking off it. Three query shapes are supported
+(the LLM chooses the shape + inputs; this module builds the calls so the model
+can't hallucinate the API):
 
-    1. dimension endpoint: name/code -> entity id
-    2. syncs: entity id -> latest sync id (+ dataType)
-    3. metric endpoint: filter by sync id -> values
+    entity   name/code -> entity id -> sync -> metric values (per-entity figure)
+    network  date -> network-wide sync -> *_networks values (network figure)
+    ranking  date/entity -> sync -> *_ranking_datas, ordered (top/bottom X)
 
-This module hard-codes that workflow so the LLM never has to (and can't
-hallucinate it). The LLM only chooses the metric and the entity (see the
-dataapp answer path).
+All calls are GET, public, read-only. See docs/dataapp_api.md for the recipes.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import requests
 
@@ -22,21 +23,42 @@ from aiu_chat import config
 USER_AGENT = "aiu-chat/0.1"
 TIMEOUT = 30
 
-# Entity kind -> (dimension endpoint, sync filter field).
+# Entity kind -> (dimension endpoint, syncs filter field, syncs dataType).
+# NOTE: the dataType strings are the live API's, verified against the running
+# service — they are NOT the tidy names you might guess (a country's syncs are
+# "state-specific", not "country"; the network is "network-wide").
 ENTITY_ENDPOINTS = {
-    "country": ("/countries", "country.id"),
-    "airport": ("/airports", "airport.id"),
-    "ansp": ("/air_navigation_service_providers", "airNavigationServiceProvider.id"),
-    "aircraft_operator": ("/aircraft_operators", "aircraftOperator.id"),
+    "country": ("/countries", "country.id", "state-specific"),
+    "airport": ("/airports", "airport.id", "airport"),
+    "ansp": ("/air_navigation_service_providers",
+             "airNavigationServiceProvider.id", "air-navigation-service-provider"),
+    "aircraft_operator": ("/aircraft_operators", "aircraftOperator.id", "aircraft-operator"),
 }
 
-# Metric -> (network endpoint, the nested prefix used in its sync filter).
+NETWORK_DATATYPE = "network-wide"
+
+# Metric -> (network endpoint, ranking-data endpoint, the nested prefix used in
+# its sync filter). CO2 has no ranking endpoint (None) — the API doesn't expose
+# co2 rankings.
 METRIC_ENDPOINTS = {
-    "traffic": ("/traffic_networks", "traffic"),
-    "delay": ("/delay_networks", "delay"),
-    "co2": ("/co2_networks", "co2"),
-    "punctuality": ("/punctualities_networks", "punctuality"),
+    "traffic": ("/traffic_networks", "/traffic_ranking_datas", "traffic"),
+    "delay": ("/delay_networks", "/delay_ranking_datas", "delay"),
+    "co2": ("/co2_networks", None, "co2"),
+    "punctuality": ("/punctualities_networks", "/punctualities_ranking_datas", "punctuality"),
 }
+
+# rankingCategory values the API accepts (from the OpenAPI Traffic-read enum).
+# These select WHICH kind of thing a ranking ranks.
+RANKING_CATEGORIES = {
+    "states", "aircraft_operators", "airports", "airport_pairs",
+    "area_control_center", "map_area_control_center", "network",
+    "flight_breakdown", "market_segments", "breakdown",
+}
+
+# dateRange values on metric/ranking rows: the latest day (DY), 7-day window
+# (WK), month (MM), year-to-date (Y2D). Y2D's avgValue is the daily average
+# across the year so far — the figure the interactive Data App shows for "daily".
+DATE_RANGES = {"DY", "WK", "MM", "Y2D"}
 
 
 class DataAppError(RuntimeError):
@@ -60,6 +82,18 @@ class DataAppResult:
     records: list[dict]  # the metric value rows (networkType/dateRange/value/...)
 
 
+@dataclass
+class RankingResult:
+    """A top/bottom-N ranking read off one sync for one metric+category."""
+    metric: str
+    category: str          # e.g. "airport_pairs", "aircraft_operators", "airports"
+    scope: str             # what the ranking is scoped to ("network" or an entity name)
+    sync_id: int
+    sync_date: str
+    date_range: str        # DY / WK / MM / Y2D
+    rows: list[dict] = field(default_factory=list)  # [{name, value, avgValue, rankNumber, share}]
+
+
 def _get(session: requests.Session, path: str, params: dict) -> dict:
     url = f"{config.DATAAPP_BASE}{path}"
     try:
@@ -75,11 +109,11 @@ def resolve_entity(kind: str, query: str, session: requests.Session) -> Entity:
     """Resolve a name or code to an entity id via the dimension endpoint."""
     if kind not in ENTITY_ENDPOINTS:
         raise DataAppError(f"Unknown entity kind: {kind}")
-    endpoint, _ = ENTITY_ENDPOINTS[kind]
-    field = "iso2" if kind == "country" and len(query) == 2 else (
+    endpoint, _, _ = ENTITY_ENDPOINTS[kind]
+    field_name = "iso2" if kind == "country" and len(query) == 2 else (
         "code" if (kind != "country" and len(query) <= 4 and query.isupper()) else "name"
     )
-    data = _get(session, endpoint, {field: query, "itemsPerPage": 5}).get("data", [])
+    data = _get(session, endpoint, {field_name: query, "itemsPerPage": 5}).get("data", [])
     if not data:
         # Retry by name if a code lookup missed.
         data = _get(session, endpoint, {"name": query, "itemsPerPage": 5}).get("data", [])
@@ -92,30 +126,57 @@ def resolve_entity(kind: str, query: str, session: requests.Session) -> Entity:
     )
 
 
-def latest_sync(entity: Entity, session: requests.Session) -> tuple[int, str]:
-    """Latest sync id + date for an entity (dataType resolved from the data)."""
-    _, sync_field = ENTITY_ENDPOINTS[entity.kind]
-    data = _get(
-        session, "/syncs",
-        {sync_field: entity.id, "order[syncDate]": "desc", "itemsPerPage": 1},
-    ).get("data", [])
+def find_sync(
+    session: requests.Session,
+    *,
+    entity: Entity | None = None,
+    date: str | None = None,
+) -> tuple[int, str]:
+    """Find a sync id + date.
+
+    - `entity=None` -> the network-wide sync (for whole-network figures/rankings).
+    - `entity` given -> that entity's sync (dataType from its kind).
+    A `date` (YYYY-MM-DD) pins to that single day (`syncDate[after]==[before]`);
+    otherwise the newest sync is used (`order[syncDate]=desc`, one item).
+    """
+    if entity is not None:
+        _, sync_field, dataType = ENTITY_ENDPOINTS[entity.kind]
+        params: dict = {"dataType": dataType, "itemsPerPage": 1, sync_field: entity.id}
+        label = f"{entity.kind} '{entity.name}'"
+    else:
+        params = {"dataType": NETWORK_DATATYPE, "itemsPerPage": 1}
+        label = "network"
+    if date:
+        params["syncDate[after]"] = date
+        params["syncDate[before]"] = date
+    else:
+        params["order[syncDate]"] = "desc"
+
+    data = _get(session, "/syncs", params).get("data", [])
     if not data:
-        raise DataAppError(f"No sync data for {entity.kind} '{entity.name}'.")
+        when = f" on {date}" if date else ""
+        raise DataAppError(f"No sync found for {label}{when}.")
     return data[0]["id"], data[0].get("syncDate", "")[:10]
 
 
+def latest_sync(entity: Entity, session: requests.Session) -> tuple[int, str]:
+    """Latest sync id + date for an entity (kept for the existing entity path)."""
+    return find_sync(session, entity=entity, date=None)
+
+
 def fetch_metric(
-    metric: str, kind: str, query: str, *, session: requests.Session | None = None
+    metric: str, kind: str, query: str, *,
+    date: str | None = None, session: requests.Session | None = None,
 ) -> DataAppResult:
-    """Full 3-hop: resolve entity -> latest sync -> metric values."""
+    """Per-entity figure: resolve entity -> sync (optionally for `date`) -> values."""
     if metric not in METRIC_ENDPOINTS:
         raise DataAppError(f"Unknown metric: {metric}")
     own = session is None
     session = session or requests.Session()
     try:
         entity = resolve_entity(kind, query, session)
-        sync_id, sync_date = latest_sync(entity, session)
-        endpoint, prefix = METRIC_ENDPOINTS[metric]
+        sync_id, sync_date = find_sync(session, entity=entity, date=date)
+        endpoint, _, prefix = METRIC_ENDPOINTS[metric]
         data = _get(
             session, endpoint,
             {f"{prefix}.sync.id": sync_id, "itemsPerPage": 30},
@@ -127,4 +188,110 @@ def fetch_metric(
             session.close()
     return DataAppResult(
         metric=metric, entity=entity, sync_id=sync_id, sync_date=sync_date, records=records
+    )
+
+
+def fetch_network(
+    metric: str, *, date: str | None = None, session: requests.Session | None = None
+) -> DataAppResult:
+    """Whole-network figure for a metric (optionally on a specific date).
+
+    Answers "how many flights on the network on <date>", "network ATFM delay",
+    etc. Uses the network-wide sync + the `*_networks` endpoint directly.
+    """
+    if metric not in METRIC_ENDPOINTS:
+        raise DataAppError(f"Unknown metric: {metric}")
+    own = session is None
+    session = session or requests.Session()
+    try:
+        sync_id, sync_date = find_sync(session, date=date)
+        endpoint, _, prefix = METRIC_ENDPOINTS[metric]
+        data = _get(
+            session, endpoint,
+            {f"{prefix}.sync.id": sync_id, "itemsPerPage": 30},
+        ).get("data", [])
+        records = [{k: v for k, v in r.items() if k != prefix} for r in data]
+    finally:
+        if own:
+            session.close()
+    net = Entity(kind="network", id=0, name="Network", code="")
+    return DataAppResult(
+        metric=metric, entity=net, sync_id=sync_id, sync_date=sync_date, records=records
+    )
+
+
+def fetch_ranking(
+    metric: str,
+    category: str,
+    *,
+    scope_kind: str | None = None,
+    scope_query: str | None = None,
+    date: str | None = None,
+    date_range: str = "DY",
+    ascending: bool = False,
+    limit: int = 15,
+    session: requests.Session | None = None,
+) -> RankingResult:
+    """A top/bottom-N ranking off one sync.
+
+    - `metric`: traffic | delay | punctuality (co2 has no rankings).
+    - `category`: what to rank (states, airports, airport_pairs, aircraft_operators…).
+    - `scope_kind`/`scope_query`: rank WITHIN an entity's sync (e.g. airport_pairs
+      for a specific airline, or aircraft_operators for a country). None -> the
+      network-wide sync (e.g. "which country/airport is highest across the network").
+    - `date`: pin to a day; else newest sync.
+    - `date_range`: DY (that day) / WK / MM / Y2D (yearly, uses avgValue).
+    - `ascending`: True for "lowest" (bottom-N), False for "highest" (top-N).
+    """
+    if metric not in METRIC_ENDPOINTS:
+        raise DataAppError(f"Unknown metric: {metric}")
+    endpoint, ranking_endpoint, prefix = METRIC_ENDPOINTS[metric]
+    if ranking_endpoint is None:
+        raise DataAppError(f"No rankings available for metric '{metric}'.")
+    if category not in RANKING_CATEGORIES:
+        raise DataAppError(f"Unknown ranking category '{category}'.")
+    if date_range not in DATE_RANGES:
+        raise DataAppError(f"Unknown date range '{date_range}'.")
+
+    own = session is None
+    session = session or requests.Session()
+    try:
+        if scope_kind and scope_query:
+            entity = resolve_entity(scope_kind, scope_query, session)
+            sync_id, sync_date = find_sync(session, entity=entity, date=date)
+            scope = entity.name
+        else:
+            sync_id, sync_date = find_sync(session, date=date)
+            scope = "network"
+
+        # The ranking-data filter chain is nested one level deeper than the
+        # metric filter: <prefix>Ranking.<prefix>.sync.id / .rankingCategory.
+        rk = f"{prefix}Ranking.{prefix}"
+        # Y2D rankings compare daily averages -> order by avgValue; DY/WK/MM by value.
+        order_field = "avgValue" if date_range == "Y2D" else "value"
+        params = {
+            f"{rk}.sync.id": sync_id,
+            f"{rk}.rankingCategory": category,
+            "dateRange": date_range,
+            f"order[{order_field}]": "asc" if ascending else "desc",
+            "itemsPerPage": max(limit, 30),
+        }
+        data = _get(session, ranking_endpoint, params).get("data", [])
+    finally:
+        if own:
+            session.close()
+
+    rows = []
+    for r in data[:limit]:
+        rows.append({
+            "name": r.get("name"),
+            "value": r.get("value"),
+            "avgValue": r.get("avgValue"),
+            "rankNumber": r.get("rankNumber"),
+            "share": r.get("share"),
+            "dateRange": r.get("dateRange"),
+        })
+    return RankingResult(
+        metric=metric, category=category, scope=scope,
+        sync_id=sync_id, sync_date=sync_date, date_range=date_range, rows=rows,
     )

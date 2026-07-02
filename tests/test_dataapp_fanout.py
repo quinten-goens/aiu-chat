@@ -34,7 +34,7 @@ def _result(name, value=100):
 
 
 def _fetch_factory(mapping, fail=()):
-    def _fetch(metric, kind, entity):
+    def _fetch(metric, kind, entity, *, date=None):
         if entity in fail:
             raise DataAppError(f"could not resolve {entity}")
         return mapping.get(entity, _result(entity))
