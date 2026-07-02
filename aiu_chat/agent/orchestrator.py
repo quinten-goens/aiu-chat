@@ -349,7 +349,12 @@ def _answer_single(
     if "dataapp" in routes:
         turn.dataapp = answer_dataapp_question(standalone, client=client)
         da = turn.dataapp
-        if da.ranking is not None:
+        if da.timeseries is not None:
+            ts = da.timeseries
+            detail = (f"Series: **{ts.metric_line}** for {ts.entity}, "
+                      f"{ts.start}→{ts.end}"
+                      + (" · transformed" if ts.transform_sql else ""))
+        elif da.ranking is not None:
             detail = (f"Ranking: **{da.ranking.category}** by {da.ranking.metric} "
                       f"(scope: {da.ranking.scope}, {da.ranking.sync_date})")
         elif da.network is not None:
