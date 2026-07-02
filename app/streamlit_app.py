@@ -290,6 +290,15 @@ def _render_turn(turn, idx):
     if turn.nm_live is not None and turn.nm_live.snapshot is not None:
         st.markdown(_chip("🟢 Network Manager · live", "src"), unsafe_allow_html=True)
 
+    # Cross-frame aggregate (#4): show the computed figure + its SQL (auditable).
+    agg = getattr(turn, "aggregate", None)
+    if agg is not None and agg.dataframe is not None and not agg.dataframe.empty:
+        st.markdown(_chip("🧮 Combined figure (computed)"), unsafe_allow_html=True)
+        st.dataframe(agg.dataframe, use_container_width=True, hide_index=True,
+                     key=f"agg_{idx}")
+        with st.expander("Show aggregation SQL"):
+            st.code(agg.sql, language="sql")
+
     if turn.sources:
         seen = []
         for s in turn.sources:

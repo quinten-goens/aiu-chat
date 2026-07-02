@@ -139,6 +139,14 @@ MULTI_SOURCE = os.getenv("AIU_MULTI_SOURCE", "true").lower() in ("1", "true", "y
 # Cap on how many sources one question may fan out to (bounds latency/cost).
 MAX_ROUTES = int(os.getenv("AIU_MAX_ROUTES", "3"))
 
+# --- Cross-frame aggregation (feature #4) ----------------------------------
+# When true, a turn that produced several tabular frames (multi-source / fan-out)
+# and asks for a cross-frame figure (combined total, difference, which-most) runs
+# ONE deterministic aggregation SQL over those frames and narrates it — the model
+# never does the arithmetic. Opt-in (default OFF): the most complex, least common
+# path. Numbers still come from an executed query.
+AGGREGATION = os.getenv("AIU_AGGREGATION", "false").lower() in ("1", "true", "yes")
+
 # --- Per-source fan-out (feature #3) ---------------------------------------
 # When true, a question naming several entities for a per-entity live source
 # (the Data App API) fans out to one fetch each and merges them into one answer

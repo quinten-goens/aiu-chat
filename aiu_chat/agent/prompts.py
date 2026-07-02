@@ -492,6 +492,43 @@ Partial answers to combine:
 Write the single combined answer."""
 
 
+AGG_SQL_SYSTEM = """\
+You are given a user's question and one or more in-memory tables (views) holding \
+already-fetched result rows. If the question asks for a figure computed ACROSS \
+the rows/tables — a combined total, a difference/comparison, a share/percentage, \
+or a ranking ("which is highest") — write ONE DuckDB SQL SELECT that computes it \
+over the given views. Otherwise output exactly: SELECT 'NO_AGG' AS note
+
+Rules:
+- Output ONLY a single SQL SELECT (a leading WITH is fine). No prose, no fences.
+- Use ONLY the listed view names and their listed columns. Never invent names.
+- Do the arithmetic in SQL (SUM/AVG/diff/ratio); never rely on outside numbers.
+- Keep it minimal: the columns needed to answer, with the aggregate applied.
+"""
+
+AGG_SQL_USER = """\
+Question: {question}
+
+Available views (name: columns):
+{views}
+
+Sample rows:
+{samples}
+
+Write the aggregation SQL, or SELECT 'NO_AGG' AS note if no cross-row figure is \
+needed."""
+
+
+def build_agg_sql_messages(question: str, views_desc: str, samples_json: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", AGG_SQL_SYSTEM),
+        Message("user", AGG_SQL_USER.format(
+            question=question, views=views_desc, samples=samples_json)),
+    ]
+
+
 def build_synthesis_messages(question: str, labelled: list[tuple[str, str]]):
     from aiu_chat.agent.llm import Message
 

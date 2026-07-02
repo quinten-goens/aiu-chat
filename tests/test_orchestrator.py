@@ -135,6 +135,59 @@ def test_multi_source_falls_back_to_concat_when_synthesis_empty():
     assert "100 tonnes" in turn.answer and "5 flights today" in turn.answer
 
 
+# --- cross-frame aggregation (#4) ------------------------------------------
+
+def test_aggregation_runs_when_enabled(monkeypatch):
+    import pandas as pd
+    from aiu_chat import config
+    from aiu_chat.agent.text_to_sql import DataAnswer
+    from aiu_chat.agent.sql_tool import SqlResult
+    monkeypatch.setattr(config, "AGGREGATION", True)
+
+    # A data frame with 3 rows to aggregate.
+    df = pd.DataFrame([{"state": "FR", "co2": 100}, {"state": "DE", "co2": 200},
+                       {"state": "ES", "co2": 300}])
+    data = DataAnswer(question="q", sql="SELECT ...",
+                      result=SqlResult(sql="SELECT ...", dataframe=df, row_count=3, truncated=False),
+                      answer="per-state figures", ok=True)
+
+    # Client: route=data; then agg-SQL gen returns a SUM; then narration.
+    class AggClient:
+        def __init__(self):
+            self.chat_calls = 0
+        def chat_json(self, messages, temperature=0.0):
+            return {"routes": ["data"]}
+        def chat(self, messages, temperature=0.0, json_mode=False):
+            self.chat_calls += 1
+            # First chat() after dispatch is the agg SQL; second is narration.
+            if self.chat_calls == 1:
+                return "SELECT SUM(co2) AS total FROM data"
+            return "The combined total is 600."
+
+    with patch.object(orch, "answer_data_question", return_value=data):
+        turn = answer("combined CO2 across these states", client=AggClient(), catalog=object())
+
+    assert turn.aggregate is not None
+    assert turn.aggregate.dataframe.iloc[0]["total"] == 600
+    assert "combined total is 600" in turn.answer.lower()
+
+
+def test_aggregation_skipped_when_disabled(monkeypatch):
+    import pandas as pd
+    from aiu_chat import config
+    from aiu_chat.agent.text_to_sql import DataAnswer
+    from aiu_chat.agent.sql_tool import SqlResult
+    monkeypatch.setattr(config, "AGGREGATION", False)
+    df = pd.DataFrame([{"state": "FR", "co2": 100}, {"state": "DE", "co2": 200}])
+    data = DataAnswer(question="q", sql="s",
+                      result=SqlResult(sql="s", dataframe=df, row_count=2, truncated=False),
+                      answer="figures", ok=True)
+    client = FakeClient(json_obj={"routes": ["data"]}, chat_text="x")
+    with patch.object(orch, "answer_data_question", return_value=data):
+        turn = answer("combined CO2", client=client, catalog=object())
+    assert turn.aggregate is None
+
+
 # --- follow-up rewriting ---------------------------------------------------
 
 def test_rewrite_noop_without_history():

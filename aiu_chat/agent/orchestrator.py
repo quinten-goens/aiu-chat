@@ -53,6 +53,8 @@ class Turn:
     answer: str = ""
     sources: list = field(default_factory=list)
     needs_clarification: bool = False  # True when the turn is a clarifying question
+    aggregate: object = None  # optional cross-frame AggResult (feature #4)
+    aggregate_answer: str = ""  # narrated prose of the aggregate result
 
 
 def _history_text(history: list[Turn], max_turns: int = 4) -> str:
@@ -301,8 +303,57 @@ def answer(
         logger.info("  nm_live ok=%s", turn.nm_live.ok)
         status("Fetching the live network snapshot…", "Live Network Manager data")
 
+    # Optional cross-frame aggregation (#4): compute a combined total / diff /
+    # ranking across the frames this turn produced — via a deterministic SQL
+    # query, never model arithmetic. Off by default; guarded.
+    if config.AGGREGATION:
+        _maybe_aggregate(turn, standalone, client, status)
+
     turn.answer, turn.sources = _combine(turn, client=client, status=status)
     return turn
+
+
+def _maybe_aggregate(turn, question: str, client, status) -> None:
+    """Run a deterministic cross-frame aggregation when the question asks for one.
+
+    Best-effort: any failure leaves the per-frame answers untouched (never raises
+    into the turn)."""
+    try:
+        from aiu_chat.agent import agg_tool
+        from aiu_chat.agent.sql_tool import UnsafeSQLError
+        import json as _json
+
+        frames = agg_tool.collect_frames(turn)
+        if not frames:
+            return
+        # Only worth aggregating across 2+ rows total.
+        if sum(len(df) for df in frames.values()) < 2:
+            return
+
+        views_desc = "\n".join(f"- {n}: {', '.join(map(str, df.columns))}"
+                               for n, df in frames.items())
+        samples = {n: df.head(10).to_dict("records") for n, df in frames.items()}
+        status("Combining the figures…", "Computing a cross-source total/comparison")
+        messages = prompts.build_agg_sql_messages(
+            question, views_desc, _json.dumps(samples, default=str))
+        sql = client.chat(messages, temperature=0.0).strip()
+        # Strip fences if any.
+        m = re.search(r"```(?:sql)?\s*(.*?)```", sql, re.DOTALL | re.IGNORECASE)
+        if m:
+            sql = m.group(1).strip()
+        sql = sql.rstrip(";").strip()
+        if not sql or "NO_AGG" in sql.upper():
+            return
+        agg = agg_tool.run_aggregation(sql, frames)
+        turn.aggregate = agg
+        logger.info("  aggregate rows=%s sql=%r", agg.row_count, agg.sql)
+
+        # Narrate the executed aggregation result (grounded; no recomputation).
+        rows_json = agg.dataframe.head(50).to_json(orient="records")
+        ans_messages = prompts.build_answer_messages(question, agg.sql, rows_json, None)
+        turn.aggregate_answer = client.chat(ans_messages, temperature=0.0).strip()
+    except Exception as exc:  # UnsafeSQLError, execution error, anything
+        logger.info("  aggregation skipped: %s", exc)
 
 
 def _combine(turn: Turn, *, client: OllamaClient | None = None, status=None) -> tuple[str, list]:
@@ -318,6 +369,9 @@ def _combine(turn: Turn, *, client: OllamaClient | None = None, status=None) -> 
     labelled: list[tuple[str, str]] = []
     sources: list = []
 
+    # A cross-frame aggregate (#4) is the direct answer — lead with it.
+    if getattr(turn, "aggregate_answer", ""):
+        labelled.append(("Combined figure", turn.aggregate_answer))
     if turn.concept is not None and turn.concept.ok:
         labelled.append(("Definition / methodology", turn.concept.answer))
         sources.extend(turn.concept.sources)
