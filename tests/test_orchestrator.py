@@ -91,6 +91,50 @@ def test_route_accepts_new_sources():
         assert route_question("q", FakeClient(json_obj={"route": r})) == r
 
 
+# --- multi-source planning -------------------------------------------------
+
+def test_plan_routes_returns_multiple():
+    from aiu_chat.agent.orchestrator import plan_routes
+    c = FakeClient(json_obj={"routes": ["dataapp", "data", "concept"]})
+    assert plan_routes("q", c, max_routes=3) == ["dataapp", "data", "concept"]
+
+
+def test_plan_routes_caps_and_dedups():
+    from aiu_chat.agent.orchestrator import plan_routes
+    c = FakeClient(json_obj={"routes": ["data", "data", "concept", "nm_live"]})
+    assert plan_routes("q", c, max_routes=2) == ["data", "concept"]
+
+
+def test_plan_routes_none_is_terminal():
+    from aiu_chat.agent.orchestrator import plan_routes
+    c = FakeClient(json_obj={"routes": ["data", "none"]})
+    assert plan_routes("q", c, max_routes=3) == ["none"]
+
+
+def test_multi_source_dispatch_runs_each_and_synthesizes():
+    # Router picks data + dataapp; both paths run, and the synthesis pass (via
+    # chat_text) produces the combined answer.
+    client = FakeClient(json_obj={"routes": ["data", "dataapp"]},
+                        chat_text="Combined: 100 tonnes historically; 5 today.")
+    with patch.object(orch, "answer_data_question", return_value=_data_answer("100 tonnes")), \
+         patch.object(orch, "answer_dataapp_question",
+                      return_value=_dataapp_answer("5 flights today")):
+        turn = answer("history and today for X", client=client, catalog=object())
+    assert turn.routes == ["data", "dataapp"]
+    assert turn.data is not None and turn.dataapp is not None
+    assert turn.answer == "Combined: 100 tonnes historically; 5 today."
+
+
+def test_multi_source_falls_back_to_concat_when_synthesis_empty():
+    # Empty chat_text -> synthesis returns None -> concatenation of sub-answers.
+    client = FakeClient(json_obj={"routes": ["data", "dataapp"]}, chat_text="")
+    with patch.object(orch, "answer_data_question", return_value=_data_answer("100 tonnes")), \
+         patch.object(orch, "answer_dataapp_question",
+                      return_value=_dataapp_answer("5 flights today")):
+        turn = answer("history and today for X", client=client, catalog=object())
+    assert "100 tonnes" in turn.answer and "5 flights today" in turn.answer
+
+
 # --- follow-up rewriting ---------------------------------------------------
 
 def test_rewrite_noop_without_history():
@@ -116,6 +160,11 @@ def _concept_answer(text="ASMA is ...", ok=True):
     return ConceptAnswer(question="q", answer=text, sources=src, ok=ok)
 
 
+def _dataapp_answer(text="5 flights today", ok=True):
+    from aiu_chat.agent.dataapp_answer import DataAppAnswer
+    return DataAppAnswer(question="q", answer=text, result=None, ok=ok)
+
+
 def test_data_route_calls_only_data_path():
     client = FakeClient(json_obj={"route": "data"})
     with patch.object(orch, "answer_data_question", return_value=_data_answer()) as md, \
@@ -128,11 +177,13 @@ def test_data_route_calls_only_data_path():
 
 
 def test_both_route_combines_paths_and_sources():
+    # "both" expands to the data + concept route set; the primary label is data.
     client = FakeClient(json_obj={"route": "both"})
     with patch.object(orch, "answer_data_question", return_value=_data_answer("100 tonnes")), \
          patch.object(orch, "answer_concept_question", return_value=_concept_answer("ASMA means X")):
         turn = answer("co2 and what is asma?", client=client, catalog=object())
-    assert turn.route == "both"
+    assert turn.routes == ["data", "concept"]
+    # FakeClient.chat() returns "" so synthesis is skipped -> concatenation.
     assert "ASMA means X" in turn.answer
     assert "100 tonnes" in turn.answer
     assert len(turn.sources) == 1  # concept source carried through

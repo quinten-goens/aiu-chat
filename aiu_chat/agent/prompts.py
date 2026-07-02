@@ -134,8 +134,13 @@ CHART_FORCE_NOTE = (
 
 ROUTER_SYSTEM = """\
 You classify a user's question about European air navigation performance. Output \
-ONLY a JSON object: \
-{"route": "data" | "concept" | "both" | "nop" | "dataapp" | "nm_live" | "none"}.
+ONLY a JSON object with a "routes" array of 1-3 sources: \
+{"routes": ["data" | "concept" | "dataapp" | "nm_live" | "nop"]}. \
+Use MULTIPLE routes ONLY when the question genuinely needs more than one source \
+(e.g. a live/daily figure AND a historical comparison, or a number AND a \
+definition). Most questions need exactly ONE route — prefer a single route \
+unless combining is clearly required. For an out-of-scope question, output \
+{"routes": ["none"]}. ("both" is also accepted and means ["data","concept"].)
 
 - "data": HISTORICAL monthly figures from the local datasets (counts, totals, \
 averages, rankings, trends, comparisons across states/airports/years/months). \
@@ -170,9 +175,16 @@ question that IS about traffic / delays / emissions / efficiency / punctuality /
 the network but is VAGUE or missing details (e.g. "get me traffic", "show me \
 delays") is still in-scope — route it to "data" (a later step will ask for any \
 missing detail). Do NOT use "none" just because a question is underspecified.
+
+Multi-source examples:
+- "How many aircraft are airborne now, and how does today compare to the yearly \
+trend?" -> {"routes": ["nm_live", "data"]}
+- "What was Heathrow's delay this year vs its 5-year average, and how is ASMA \
+additional time defined?" -> {"routes": ["dataapp", "data", "concept"]}
+- "Which state had the most CO2 in 2024?" -> {"routes": ["data"]}  (one source)
 """
 
-ROUTER_USER_TEMPLATE = """Question: {question}\n\nOutput the route JSON."""
+ROUTER_USER_TEMPLATE = """Question: {question}\n\nOutput the routes JSON."""
 
 
 CLARIFY_SYSTEM = """\
@@ -447,6 +459,41 @@ def build_dataapp_answer_messages(question, metric, entity, sync_date, records_j
                 sync_date=sync_date, records=records_json,
             ),
         ),
+    ]
+
+
+SYNTHESIS_SYSTEM = """\
+You are given a user's question and several ALREADY-GROUNDED partial answers, \
+each from a different trusted source (historical data, latest daily figures, the \
+live network, network-operations updates, or a methodology definition). Combine \
+them into ONE cohesive answer.
+
+Rules you MUST follow:
+- Use ONLY the facts and numbers in the partial answers. NEVER recompute, sum, \
+average, or invent a number. Quote every figure exactly as given.
+- Keep each figure's context (which source / as-of date / entity it came from).
+- Write one flowing answer, not a list of fragments. Lead with the direct answer.
+- Do not drop a source's substantive fact; if two sources seem to conflict, say \
+so plainly rather than silently picking one.
+- Be concise.
+"""
+
+SYNTHESIS_USER_TEMPLATE = """\
+Question: {question}
+
+Partial answers to combine:
+{parts}
+
+Write the single combined answer."""
+
+
+def build_synthesis_messages(question: str, labelled: list[tuple[str, str]]):
+    from aiu_chat.agent.llm import Message
+
+    parts = "\n\n".join(f"[{label}]\n{text}" for label, text in labelled)
+    return [
+        Message("system", SYNTHESIS_SYSTEM),
+        Message("user", SYNTHESIS_USER_TEMPLATE.format(question=question, parts=parts)),
     ]
 
 

@@ -130,6 +130,15 @@ OLLAMA_TIMEOUT = int(os.getenv("AIU_OLLAMA_TIMEOUT", "180"))
 # benefit on deterministic SQL/JSON generation. Set to "1"/"true" to re-enable.
 OLLAMA_THINK = os.getenv("AIU_OLLAMA_THINK", "false").lower() in ("1", "true", "yes")
 
+# --- Multi-source planner (feature #2) -------------------------------------
+# When true, the router may select MORE THAN ONE source for a question (e.g. a
+# live daily figure + a historical average + a methodology definition), and a
+# synthesis pass stitches the grounded sub-answers into one. Off -> exactly the
+# prior single-route behaviour.
+MULTI_SOURCE = os.getenv("AIU_MULTI_SOURCE", "true").lower() in ("1", "true", "yes")
+# Cap on how many sources one question may fan out to (bounds latency/cost).
+MAX_ROUTES = int(os.getenv("AIU_MAX_ROUTES", "3"))
+
 # --- Entity / knowledge layer ----------------------------------------------
 # When true, the SQL prompt is enriched with resolved canonical entities (from
 # data/entities.json) so generated SQL filters on the right column/literal

@@ -234,13 +234,24 @@ def _render_turn(turn, idx):
         return
 
     # Show how the question was routed (transparency into the agent's choice).
-    label, why = ROUTE_INFO.get(turn.route, (turn.route, ""))
+    # Multi-source turns show a chip per source; single-source shows one.
+    routes = getattr(turn, "routes", None) or [turn.route]
+    chips = []
+    whys = []
+    for r in routes:
+        label, why = ROUTE_INFO.get(r, (r, ""))
+        chips.append(_chip(label))
+        if why:
+            whys.append(f"**{label}** — {why}")
+    if len(routes) > 1:
+        chips.insert(0, _chip("🔀 Multi-source"))
+    st.markdown(" ".join(chips), unsafe_allow_html=True)
+    detail = "\n\n".join(whys)
     if turn.standalone_question and turn.standalone_question != turn.question:
-        why += f"\n\nInterpreted your question as: *{turn.standalone_question}*"
-    st.markdown(_chip(label), unsafe_allow_html=True)
-    if why:
+        detail += f"\n\nInterpreted your question as: *{turn.standalone_question}*"
+    if detail:
         with st.expander("How I answered this"):
-            st.markdown(why)
+            st.markdown(detail)
 
     st.markdown(turn.answer)
 
