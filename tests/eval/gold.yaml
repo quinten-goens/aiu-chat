@@ -57,7 +57,11 @@ cases:
   - id: top_airport_movements_2024
     question: "Which airport had the most total flight movements in 2024?"
     expected_text_in: "Istanbul"
-    sql_must_contain: ["airport_traffic", "sum"]
+    # Guard the SEMANTICS, not incidental syntax: must read total movements
+    # (FLT_TOT_1) from the airport_traffic table — not departures-only or the
+    # wrong table. The aggregate form (SUM vs a CTE vs a window) is left free,
+    # since it varies run-to-run while the answer (Istanbul) stays correct.
+    sql_must_contain: ["airport_traffic", "flt_tot_1"]
 
   - id: enroute_weather_delay_2023
     question: "What was the total en-route ATFM delay caused by weather across all ANSPs in 2023, in minutes?"
