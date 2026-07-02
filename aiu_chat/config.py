@@ -163,9 +163,11 @@ PB_ADMIN_USER_PASSWORD = os.getenv("PB_ADMIN_USER_PASSWORD", "")
 # Master switch: set to false to disable all chat logging.
 CHAT_LOGGING = os.getenv("AIU_CHAT_LOGGING", "true").lower() in ("1", "true", "yes")
 
-# --- Hidden admin viewer ---------------------------------------------------
-# Reached only via a secret query slug AND a separate password (security by
-# obscurity + auth). Not listed in the app navigation.
+# --- Admin viewer ----------------------------------------------------------
+# The conversation viewer is a "Viewer" page in the nav, gated by its own
+# separate password (distinct from the main app password). Set the password to
+# enable it. (ADMIN_VIEW_SLUG is retained for backwards compatibility but no
+# longer required to reach the page.)
 ADMIN_VIEW_SLUG = os.getenv("AIU_ADMIN_VIEW_SLUG", "")
 ADMIN_VIEW_PASSWORD = os.getenv("AIU_ADMIN_VIEW_PASSWORD", "")
 
@@ -176,8 +178,8 @@ def chat_logging_configured() -> bool:
 
 
 def admin_viewer_configured() -> bool:
-    """True if the hidden viewer has both a slug and a password set."""
-    return bool(ADMIN_VIEW_SLUG and ADMIN_VIEW_PASSWORD)
+    """True if the viewer password is set (also needs PB_ADMIN_USER_* to read)."""
+    return bool(ADMIN_VIEW_PASSWORD)
 
 # --- EUROCONTROL Data App API ----------------------------------------------
 # NOTE: this API is D-1 (yesterday's daily figures), not real-time.

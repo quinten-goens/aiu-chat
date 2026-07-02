@@ -23,18 +23,12 @@ from aiu_chat.sources import chatlog
 
 
 def _authed() -> bool:
-    """Slug in URL + correct viewer password."""
+    """Gate the viewer on its own password (separate from the main app password)."""
     if not config.admin_viewer_configured():
         st.error(
-            "The admin viewer is not configured. Set AIU_ADMIN_VIEW_SLUG and "
-            "AIU_ADMIN_VIEW_PASSWORD (and PB_ADMIN_USER_* for reads)."
+            "The admin viewer is not configured. Set AIU_ADMIN_VIEW_PASSWORD "
+            "(and PB_ADMIN_USER_* for reads)."
         )
-        return False
-
-    slug = st.query_params.get("view")
-    if slug != config.ADMIN_VIEW_SLUG:
-        # Wrong/absent slug: reveal nothing (behave like an unknown page).
-        st.error("Not found.")
         return False
 
     if st.session_state.get("admin_view_authed"):

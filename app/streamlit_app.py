@@ -520,12 +520,9 @@ _pages = [
     st.Page(_about, title="About", icon="ℹ️"),
 ]
 
-# Hidden viewer: only exposed as a route when the URL carries the secret slug, so
-# it never shows in the nav for ordinary users (obscurity) and is password-gated.
-if (
-    config.admin_viewer_configured()
-    and st.query_params.get("view") == config.ADMIN_VIEW_SLUG
-):
+# Viewer: shown as a nav page whenever a viewer password is configured. The page
+# itself is password-gated (a separate password from the main app login).
+if config.admin_viewer_configured():
     _pages.append(st.Page(_admin, title="Viewer", icon="🗂️"))
 
 _nav = st.navigation(_pages)
