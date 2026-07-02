@@ -111,25 +111,61 @@ New module `ingest/build_entities.py`, run as part of `scripts/refresh.sh`:
 1. For each dataset with an `entity_binding`, `SELECT DISTINCT` the entity
    column(s) via DuckDB (fast, already how the catalog is built).
 2. **Canonicalise:**
-   - States keyed by `STATE_CODE` (ICAO 2-letter, stable) → `state:<code>`.
-     Map every `STATE_NAME` variant (`ALBANIA`, `Albania`) to it as aliases,
-     and record the per-table exact value for filtering.
+   - States keyed by **ISO country code** (from OurAirports `countries.csv`) →
+     `state:<iso>` (e.g. `state:GB`). Map every `STATE_NAME` variant (`ALBANIA`,
+     `Albania`, `United Kingdom`) and the ICAO 2-letter `STATE_CODE` to it as
+     aliases, and record the per-table exact value for filtering.
    - Airports keyed by `APT_ICAO` → `apt:<icao>`. First-seen `APT_NAME` becomes
      `canonical_name`; all name variants become aliases; link `state_id` via the
      row's `STATE_NAME` → resolved state.
    - ANSPs keyed by a slug of `ENTITY_NAME` → `ansp:<slug>`.
    - FIRs keyed by `ENTITY_NAME`, `kind=fir` (skip FAB aggregates or mark
      `kind=fab`).
-3. **Enrich (optional, best-effort, offline):** a small committed
-   `data/entity_seed.json` adds IATA codes and common colloquial aliases
-   (`LHR`→EGLL, `UK`→GB, `Charles de Gaulle`→LFPG). Curated once; ~a few dozen
-   entries for the busiest entities. No network needed.
+3. **Enrich from OurAirports (§3.1).** Join the external reference data (fetched
+   at ingest, cached, committed as a snapshot) to the entities derived above,
+   keyed by ICAO / ISO country code. This replaces hand-curated seeds with
+   automatic, full-coverage enrichment for all 336 airports and 44 states.
 4. Write `entities` + `entity_aliases` tables into DuckDB **and** dump
    `data/entities.json` for prompting and unit tests.
 5. **Schema-drift guard** (per the freshness requirement): if a dataset's
    entity column disappears or a previously-known entity vanishes, log loudly.
 
-Cost: trivial — a handful of `SELECT DISTINCT`s over already-local parquet.
+Cost: trivial — a handful of `SELECT DISTINCT`s over already-local parquet, plus
+two small CSV joins.
+
+### 3.1 External enrichment: OurAirports (Role: reference, not queryable)
+
+Two public-domain CSVs from [OurAirports](https://ourairports.com/data/) enrich
+the entity layer. They are **never SQL-queryable performance data** — they only
+populate the canonical entity/alias rows. Fetched at ingest, cached, and a
+snapshot committed so ingestion stays reproducible offline. **License: public
+domain** ("released to the Public Domain … credit appreciated but not required")
+— compatible with the project's terms; no attribution constraint.
+
+**`airports.csv`** — join to your 336 airports on `icao_code = APT_ICAO` (take
+only the intersection; OA has ~85k airports, you want your 336). Fields used:
+
+| OA field | Feeds |
+|---|---|
+| `icao_code` | join key → `apt:<icao>` |
+| `iata_code` (e.g. `LHR`, `CDG`) | **new** — you have zero IATA today; becomes an alias + `entities.iata` |
+| `name` (`London Heathrow Airport`) | canonical name candidate + alias |
+| `municipality` (`London`, `Paris`) | alias (colloquial "London", "Paris") |
+| `keywords` (`LON, Londres` / `PAR, Roissy Airport`) | **pre-made aliases**, incl. foreign-language forms — replaces manual curation |
+| `latitude_deg`, `longitude_deg` | stored on `entities` (future geo/nearest queries) |
+| `iso_country` (`GB`, `FR`) | links airport → canonical state (below) |
+
+**`countries.csv`** — small ISO `code ↔ name` map. This is the piece that closes
+the **state-name smoking gun**: your tables disagree (`ALBANIA` vs `Albania` vs
+`United Kingdom`), but every one resolves to a neutral ISO code
+(`AL`, `GB`) via this map, which becomes the canonical `state:<iso>` id. Each
+raw `STATE_NAME` variant is then recorded as a per-table filter value against
+that canonical id (§2.4). ANSPs and FIRs are **not** covered by OurAirports and
+stay derived from your own data (deferred relationship enrichment — see §9 Q4).
+
+> Note the canonical state id shifts from `state:<ICAO 2-letter>` to
+> `state:<ISO country code>` now that `countries.csv` gives a clean ISO anchor;
+> the ICAO 2-letter `STATE_CODE` is retained as an alias.
 
 ---
 
@@ -197,7 +233,7 @@ pass rate on existing cases and should raise it on the new ones.
 |---|---|
 | **Ambiguous aliases** (e.g. "London" → LHR/LGW/LCY/STN) | Resolver returns *candidates*; if >1 and the question is entity-critical, surface a clarifying question (the pipeline already supports clarification) rather than guessing. |
 | **Stale entities after a data refresh** | Rebuilt every ingest from `SELECT DISTINCT`; drift guard logs additions/removals. |
-| **Curated seed rot** (IATA/colloquial map) | Seed is tiny, committed, and only *adds* aliases; if wrong it degrades to model-guess, never a hard failure. |
+| **OurAirports drift** (upstream CSV changes/removes an airport) | Snapshot committed at ingest for reproducibility; join is by ICAO to *your* 336 airports, so upstream additions are ignored and a missing match degrades to name-only aliases, never a hard failure. |
 | **Over-engineering into a real KG** | Explicit non-goal. FK columns only; add `entity_edges` **only** if a concrete multi-hop question needs it. |
 | **Regression on working questions** | Resolver is advisory; eval-gated; feature can sit behind a config flag `AIU_ENTITY_LAYER=true` for a safe rollout. |
 
@@ -205,9 +241,13 @@ pass rate on existing cases and should raise it on the new ones.
 
 ## 8. Build order (vertical slices)
 
+0. `ingest/download_ourairports.py` → fetch + cache + commit a snapshot of
+   `airports.csv` and `countries.csv` (public domain). One-time-ish; part of the
+   refresh job.
 1. `ingest/build_entities.py` → `entities`/`entity_aliases` tables +
    `entities.json`, for **states + airports only** (the two with the proven
-   mismatch). Drift guard. Unit tests on the builder.
+   mismatch), enriched from the OurAirports snapshot. Drift guard. Unit tests on
+   the builder.
 2. `agent/entities.py` resolver + `filter_value()`. Unit-tested against
    `entities.json`. No agent wiring yet.
 3. Wire **SQL prompt enrichment** (integration point #1) behind
@@ -221,14 +261,16 @@ Each slice is independently useful and independently revertable.
 
 ## 9. Open questions for you
 
-1. **Seed curation scope** — how far do we go on colloquial aliases/IATA? I'd
-   start with only the ~30 busiest airports + all 44 states, and grow from
-   real logged questions (we now log every question — the miss list writes
-   itself).
+1. ~~**Seed curation scope**~~ — **resolved:** airport IATA/aliases and state
+   ISO anchors come automatically from OurAirports (§3.1), for all 336 airports
+   and 44 states. No manual seed. Grow further from the logged miss-list only if
+   needed.
 2. **Ambiguity policy** — for "London", prefer (a) clarify, (b) default to the
    busiest (EGLL), or (c) return all and let SQL group? I lean (a).
 3. **Flag vs. always-on** — ship behind `AIU_ENTITY_LAYER` first, or straight in
    once eval passes? I lean flag-first.
-4. **FIR vs FAB** — treat FABs (Baltic FAB, BLUE MED FAB) as entities too, or
-   only country-FIRs? Depends whether you get FAB-level questions.
-```
+4. **FIR/ANSP relationship enrichment** — **deferred** (your call): no clean open
+   source, so airport→FIR / ANSP→FIR edges wait until logged questions show
+   demand. ANSPs/FIRs are still resolved from your own data (names + aliases),
+   just without external relationship edges. (Also TBD: treat FABs like Baltic
+   FAB / BLUE MED FAB as entities, or only country-FIRs?)
