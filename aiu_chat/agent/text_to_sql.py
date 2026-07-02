@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from aiu_chat import config
 from aiu_chat.agent.catalog import Catalog, get_catalog
 from aiu_chat.agent.llm import OllamaClient
 from aiu_chat.agent import prompts
@@ -80,8 +81,21 @@ def answer_data_question(
     client = client or OllamaClient()
     catalog = catalog or get_catalog()
 
-    # 1. Generate SQL.
-    sql_messages = prompts.build_sql_messages(catalog.prompt_text(), question)
+    # 1. Generate SQL. When the entity layer is on, resolve entities mentioned in
+    # the question and tell the model the exact column/literal to filter on per
+    # table (reconciles STATE_NAME case/spelling mismatches). Advisory: on any
+    # problem the hint is empty and the prompt is unchanged.
+    entities_hint = ""
+    if config.ENTITY_LAYER:
+        try:
+            from aiu_chat.agent import entities as _entities
+
+            entities_hint = _entities.sql_prompt_hint(question)
+        except Exception:
+            entities_hint = ""
+    sql_messages = prompts.build_sql_messages(
+        catalog.prompt_text(), question, entities_hint
+    )
     raw_sql = client.chat(sql_messages, temperature=0.0)
     sql = _clean_sql(raw_sql)
 

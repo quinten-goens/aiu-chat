@@ -138,3 +138,25 @@ cases:
     # subject + metric + time present -> answer directly, no nagging
     expect_clarification: false
     expected_route: data
+
+  # --- entity layer (resolution: colloquial names + cross-source state) ---
+
+  - id: entity_heathrow_colloquial_traffic
+    question: "How many flights did Heathrow have in 2024?"
+    # 'Heathrow' must resolve to EGLL and filter on the ICAO code.
+    expected_route: data
+    sql_must_contain: ["EGLL"]
+
+  - id: entity_cdg_alias_delays
+    question: "What were the pre-departure delays at Charles de Gaulle in 2023?"
+    # 'Charles de Gaulle' -> LFPG (alias resolution).
+    expected_route: data
+    sql_must_contain: ["LFPG"]
+
+  - id: entity_uk_state_co2_case
+    question: "What were the total CO2 emissions for the United Kingdom in 2024?"
+    # State filter must use the CO2 table's UPPERCASE literal, not title case.
+    expected_value: 35779547.69
+    tolerance: 1.0
+    sql_must_contain: ["UNITED KINGDOM", "sum"]
+    sql_must_not_contain: ["avg"]

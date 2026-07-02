@@ -130,6 +130,13 @@ OLLAMA_TIMEOUT = int(os.getenv("AIU_OLLAMA_TIMEOUT", "180"))
 # benefit on deterministic SQL/JSON generation. Set to "1"/"true" to re-enable.
 OLLAMA_THINK = os.getenv("AIU_OLLAMA_THINK", "false").lower() in ("1", "true", "yes")
 
+# --- Entity / knowledge layer ----------------------------------------------
+# When true, the SQL prompt is enriched with resolved canonical entities (from
+# data/entities.json) so generated SQL filters on the right column/literal
+# (e.g. STATE_NAME='UNITED KINGDOM' in the CO2 table vs 'United Kingdom' in the
+# airport tables). Advisory only — an unresolved entity falls back to the model.
+ENTITY_LAYER = os.getenv("AIU_ENTITY_LAYER", "true").lower() in ("1", "true", "yes")
+
 # --- Retrieval -------------------------------------------------------------
 # With a large PDF-inclusive corpus, give the model a few more candidates.
 TOP_K = int(os.getenv("AIU_TOP_K", "8"))

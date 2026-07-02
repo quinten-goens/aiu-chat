@@ -46,7 +46,7 @@ SQL_USER_TEMPLATE = """\
 Database schema:
 
 {schema}
-
+{entities}
 Question: {question}
 
 Write the DuckDB SQL SELECT that answers it."""
@@ -354,12 +354,17 @@ Reference excerpts:
 Answer using only these excerpts, and name the source(s) you relied on."""
 
 
-def build_sql_messages(schema_text: str, question: str):
+def build_sql_messages(schema_text: str, question: str, entities_text: str = ""):
     from aiu_chat.agent.llm import Message
 
+    # `entities_text` (from the entity resolver) tells the model the exact literal
+    # to filter on per table, reconciling name/case mismatches. Empty when the
+    # entity layer is disabled or nothing resolved — then the prompt is unchanged.
+    block = f"\n{entities_text}\n" if entities_text else "\n"
     return [
         Message("system", SQL_SYSTEM),
-        Message("user", SQL_USER_TEMPLATE.format(schema=schema_text, question=question)),
+        Message("user", SQL_USER_TEMPLATE.format(
+            schema=schema_text, question=question, entities=block)),
     ]
 
 
