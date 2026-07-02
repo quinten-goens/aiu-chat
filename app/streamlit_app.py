@@ -197,8 +197,8 @@ ADVANCED_SUGGESTIONS = [
         [
             ("Show the weekly ATFM delay per flight on the network from 1 January 2026 to 1 May 2026 as a line chart",
              "**Weekly ATFM delay per flight** · Jan→May 2026 · **line chart**"),
-            ("Give me the monthly total CO2 emissions on the network over the first quarter of 2026",
-             "**Monthly total CO2** · **Q1 2026**"),
+            ("What was the weekly total number of flights on the network from 1 February 2026 to 1 April 2026?",
+             "**Weekly total flights** · **Feb → Apr 2026**"),
             ("What was the 7-day rolling average of network traffic in February 2026?",
              "**7-day rolling average** of traffic · **Feb 2026**"),
         ],
