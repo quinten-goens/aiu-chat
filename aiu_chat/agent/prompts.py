@@ -46,7 +46,7 @@ SQL_USER_TEMPLATE = """\
 Database schema:
 
 {schema}
-
+{entities}
 Question: {question}
 
 Write the DuckDB SQL SELECT that answers it."""
@@ -134,8 +134,13 @@ CHART_FORCE_NOTE = (
 
 ROUTER_SYSTEM = """\
 You classify a user's question about European air navigation performance. Output \
-ONLY a JSON object: \
-{"route": "data" | "concept" | "both" | "nop" | "dataapp" | "nm_live" | "none"}.
+ONLY a JSON object with a "routes" array of 1-3 sources: \
+{"routes": ["data" | "concept" | "dataapp" | "nm_live" | "nop"]}. \
+Use MULTIPLE routes ONLY when the question genuinely needs more than one source \
+(e.g. a live/daily figure AND a historical comparison, or a number AND a \
+definition). Most questions need exactly ONE route — prefer a single route \
+unless combining is clearly required. For an out-of-scope question, output \
+{"routes": ["none"]}. ("both" is also accepted and means ["data","concept"].)
 
 - "data": HISTORICAL monthly figures from the local datasets (counts, totals, \
 averages, rankings, trends, comparisons across states/airports/years/months). \
@@ -149,9 +154,18 @@ what's happening on the network: weather/CB activity, AERODROME situations \
 (ATC capacity/sector/ACC issues). Use for "what's the situation at <airport>", \
 "any airspace/capacity issues", "what's happening on the network", "tactical \
 update", as well as network weather.
-- "dataapp": recent DAILY figures (about yesterday / latest available day, this \
-week, or year-to-date) of traffic, ATFM delay, CO2, or punctuality for a \
-specific country, airport, ANSP, or airline. (This source is D-1, not real-time.)
+- "dataapp": the EUROCONTROL Data App — DAILY-granularity figures (a specific \
+calendar DAY, this week, a month, or year-to-date) of traffic/flights, ATFM \
+delay, CO2, or punctuality. Use it for THREE kinds of question: (a) a figure for \
+a named country/airport/ANSP/airline; (b) a WHOLE-NETWORK figure ("how many \
+flights on the network on <date>", "network ATFM per flight"); (c) a "which one \
+is highest/lowest/busiest/most/least" RANKING — which airport had the highest \
+punctuality, which country generated the most ATFM delay, the busiest airport \
+pair for an airline, the busiest airline in a country, the busiest destination \
+from an airport. It has data for SPECIFIC PAST DATES too (e.g. "on 10 March \
+2025"), so a question naming an exact day/quarter/year AND asking a \
+per-day-style figure or a which-is-highest ranking of airports/countries/pairs/ \
+airlines goes here — NOT to "data". (Source is D-1, not real-time.)
 - "nm_live": the REAL-TIME network state RIGHT NOW — how many aircraft are \
 airborne now, current total network delay, the most-delayed ACCs right now, or \
 which ATFM regulations are active now.
@@ -170,9 +184,26 @@ question that IS about traffic / delays / emissions / efficiency / punctuality /
 the network but is VAGUE or missing details (e.g. "get me traffic", "show me \
 delays") is still in-scope — route it to "data" (a later step will ask for any \
 missing detail). Do NOT use "none" just because a question is underspecified.
+
+Examples:
+- "How many flights were there on the network on the 10th of March 2026?" -> \
+{"routes": ["dataapp"]}  (network figure on a specific day)
+- "Which airport had the highest arrival punctuality on 10 March 2025?" -> \
+{"routes": ["dataapp"]}  (a ranking)
+- "Which country generated the most ATFM delay on 10 March 2025?" -> \
+{"routes": ["dataapp"]}
+- "What was the busiest airport pair for British Airways in 2025?" -> \
+{"routes": ["dataapp"]}  (an airport-pair ranking scoped to an airline)
+- "Busiest airline in Estonia in 2025?" -> {"routes": ["dataapp"]}
+- "How many aircraft are airborne now, and how does today compare to the yearly \
+trend?" -> {"routes": ["nm_live", "data"]}
+- "What was Heathrow's delay this year vs its 5-year average, and how is ASMA \
+additional time defined?" -> {"routes": ["dataapp", "data", "concept"]}
+- "Which state had the most CO2 emissions across 2024?" -> {"routes": ["data"]} \
+(CO2 has no Data App ranking; the historical datasets answer this)
 """
 
-ROUTER_USER_TEMPLATE = """Question: {question}\n\nOutput the route JSON."""
+ROUTER_USER_TEMPLATE = """Question: {question}\n\nOutput the routes JSON."""
 
 
 CLARIFY_SYSTEM = """\
@@ -245,18 +276,63 @@ DATAAPP_EXTRACT_SYSTEM = """\
 You translate a question into a EUROCONTROL Data App API request. Output ONLY a \
 JSON object, nothing else:
 {
+  "query_kind": "entity" | "network" | "ranking",
   "metric": "traffic" | "delay" | "co2" | "punctuality",
-  "entity_kind": "country" | "airport" | "ansp" | "aircraft_operator",
-  "entity": "<the name or code, e.g. 'France', 'EGLL', 'DSNA'>"
+  "date": "YYYY-MM-DD" | null,
+  "period": "DY" | "WK" | "MM" | "Y2D",
+  "entities": [
+    {"entity_kind": "country"|"airport"|"ansp"|"aircraft_operator",
+     "entity": "<name or code, e.g. 'France', 'EGLL', 'DSNA'>"}
+  ],
+  "ranking_category": "airports"|"states"|"airport_pairs"|"aircraft_operators"|null,
+  "scope_kind": "country"|"airport"|"aircraft_operator"|null,
+  "scope": "<name/code the ranking is scoped to, or null>",
+  "order": "highest" | "lowest"
 }
 
-- "traffic" = number of flights; "delay" = ATFM delay; "co2" = CO2 emissions; \
-"punctuality" = on-time performance.
-- Use entity_kind "country" for a state/country, "airport" for an airport (use \
-its ICAO code if given), "ansp" for an air navigation service provider, \
+METRIC: "traffic" = number of flights; "delay" = ATFM delay (minutes); \
+"co2" = CO2 emissions; "punctuality" = on-time / arrival-punctuality performance. \
+ONE metric per request.
+
+QUERY_KIND — pick exactly one:
+- "network": a WHOLE-NETWORK figure, no specific stakeholder. Use for "how many \
+flights were there on the network", "network ATFM delay", "network-wide average". \
+Leave entities empty.
+- "ranking": asks WHICH one is highest/lowest/busiest/most/least among a group — \
+e.g. "which airport had the highest punctuality", "which country generated the \
+most ATFM delay", "busiest airport pair for British Airways", "busiest airline in \
+Estonia", "busiest destination from Hamburg". Set ranking_category:
+    * "airports" — ranking airports (which airport is highest/busiest/lowest)
+    * "states" — ranking countries/states
+    * "airport_pairs" — busiest routes / airport pairs / busiest destination from X
+    * "aircraft_operators" — busiest airline/operator
+  If the ranking is WITHIN one entity, set scope_kind + scope to that entity:
+    * pairs FOR an airline -> ranking_category "airport_pairs", scope_kind \
+"aircraft_operator".
+    * operators IN a country -> "aircraft_operators", scope_kind "country".
+    * busiest DESTINATION FROM an airport -> ranking_category "airports" (NOT \
+airport_pairs — an airport's data ranks destination airports, not pairs), \
+scope_kind "airport", scope = that airport.
+  For a whole-network ranking (which airport/country is highest across Europe), \
+leave scope null.
+  Set order to "lowest" for lowest/least/worst, "highest" for highest/most/ \
+busiest, and "both" when the question asks for BOTH extremes at once (e.g. \
+"the airports with the highest AND lowest punctuality").
+- "entity": a figure for one or more NAMED entities. List EVERY named entity \
+(e.g. "France, Germany and Spain" -> three entries). entity_kind is "country" for \
+a state, "airport" for an airport (ICAO code if given), "ansp" for an ANSP, \
 "aircraft_operator" for an airline.
-- This API serves CURRENT/near-real-time figures (today, this week, year-to-date).
-- If the question cannot be mapped to one of these, output {"metric": null}.
+
+DATE / PERIOD:
+- "date": a SPECIFIC calendar day the question names, as YYYY-MM-DD (e.g. \
+"on the 10th of March 2026" -> "2026-03-10"). Otherwise null (=latest available).
+- "period": DY = a single day (default), WK = last 7 days, MM = a month, \
+Y2D = year-to-date / a full year. For a YEAR ("in 2025", "in 2024", "busiest ... \
+in 2025") use period "Y2D" AND set date to the LAST day of that year \
+(2025-12-31 / 2024-12-31). For a quarter ("Q1/2026") use period "Y2D" with date \
+set to the last day of the quarter (2026-03-31).
+
+- If the question cannot be mapped at all, output {"metric": null}.
 """
 
 DATAAPP_EXTRACT_USER = """Question: {question}\n\nOutput the request JSON."""
@@ -267,9 +343,18 @@ is updated daily and reflects the latest available day (D-1, i.e. yesterday), NO
 real-time — describe it as the latest daily figures, not "right now".
 
 Each record has: networkType (total/avg), dateRange (DY=the latest reported day, \
-WK=last 7 days, Y2D=year-to-date), and value or avgValue. Quote the relevant \
-figures; do not invent numbers. Lead with the direct answer and state the data \
-date (which is the latest available day).
+WK=last 7 days, MM=month, Y2D=year-to-date), and value or avgValue. Quote the \
+relevant figures; do not invent numbers. Lead with the direct answer and state \
+the data date (which is the latest available day).
+
+Picking the RIGHT record:
+- Match the dateRange to the question's period: a specific year or quarter, or \
+"in 2025 / Q1 2026", is Y2D; "this week" is WK; "yesterday / on <day>" is DY.
+- For PUNCTUALITY, the headline "arrival punctuality percentage" is the \
+networkType=total row's value (a percentage). Use networkType=total, NOT avg, \
+unless the question explicitly asks for an average-of-days. (E.g. Poland Q1/2026 \
+arrival punctuality = the total Y2D value.)
+- For TRAFFIC/DELAY/CO2 totals use the total row; for a per-day average use avg.
 """
 
 DATAAPP_ANSWER_USER = """\
@@ -279,6 +364,56 @@ Metric: {metric} for {entity} (as of {sync_date})
 Records (JSON): {records}
 
 Write a short, grounded answer."""
+
+
+DATAAPP_NETWORK_SYSTEM = """\
+You answer a WHOLE-NETWORK question using EUROCONTROL Data App figures provided \
+as JSON records. Each record has networkType (total/avg), dateRange (DY = the \
+reported day, WK = last 7 days, MM = month, Y2D = year-to-date), and value or \
+avgValue.
+
+Rules:
+- Quote the figure that matches the question's period exactly; do not invent or \
+recompute numbers. For "how many flights on <day>" use the DY total value.
+- Lead with the direct answer and state the date the figures are for.
+"""
+
+DATAAPP_NETWORK_USER = """\
+Question: {question}
+
+Network {metric} figures for {sync_date} (JSON): {records}
+
+Write a short, grounded answer."""
+
+
+DATAAPP_RANKING_SYSTEM = """\
+You answer a "which one is highest/lowest" question using a pre-sorted \
+EUROCONTROL Data App ranking provided as JSON. Each row has: name, value, \
+avgValue (the daily average, used for yearly/Y2D rankings), rankNumber, share.
+
+The direction of this question is: {direction}.
+- For "highest" or "lowest": the JSON is a LIST already ordered so the FIRST row \
+is the answer. Name that first row and quote its figure.
+- For "both": the JSON is an object with a "highest" row and a "lowest" row — \
+name BOTH (the highest one and the lowest one), each with its figure.
+
+Rules:
+- Use avgValue for a Y2D/yearly period (round sensibly, e.g. "~21 daily flights" \
+or "90.8%"); otherwise use value. Do NOT invent or recompute numbers.
+- Only call it a TIE if the leading rows share the SAME top figure. If the first \
+row's figure beats the second's, it is the sole winner — do NOT say it is tied. \
+You may mention the runner-up for context, but say it is behind.
+- Lead with the direct answer; mention what is being ranked and the date/period.
+"""
+
+DATAAPP_RANKING_USER = """\
+Question: {question}
+
+Ranking: {direction} {category} by {metric}, scope = {scope}, as of {sync_date} \
+(period {period}).
+Rows, best first (JSON): {rows}
+
+Write a short, grounded answer naming the top entry (or the tie)."""
 
 
 NM_LIVE_SYSTEM = """\
@@ -354,12 +489,17 @@ Reference excerpts:
 Answer using only these excerpts, and name the source(s) you relied on."""
 
 
-def build_sql_messages(schema_text: str, question: str):
+def build_sql_messages(schema_text: str, question: str, entities_text: str = ""):
     from aiu_chat.agent.llm import Message
 
+    # `entities_text` (from the entity resolver) tells the model the exact literal
+    # to filter on per table, reconciling name/case mismatches. Empty when the
+    # entity layer is disabled or nothing resolved — then the prompt is unchanged.
+    block = f"\n{entities_text}\n" if entities_text else "\n"
     return [
         Message("system", SQL_SYSTEM),
-        Message("user", SQL_USER_TEMPLATE.format(schema=schema_text, question=question)),
+        Message("user", SQL_USER_TEMPLATE.format(
+            schema=schema_text, question=question, entities=block)),
     ]
 
 
@@ -442,6 +582,101 @@ def build_dataapp_answer_messages(question, metric, entity, sync_date, records_j
                 sync_date=sync_date, records=records_json,
             ),
         ),
+    ]
+
+
+def build_dataapp_network_messages(question, metric, sync_date, records_json):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", DATAAPP_NETWORK_SYSTEM),
+        Message("user", DATAAPP_NETWORK_USER.format(
+            question=question, metric=metric, sync_date=sync_date, records=records_json)),
+    ]
+
+
+def build_dataapp_ranking_messages(
+    question, metric, category, scope, sync_date, period, direction, rows_json
+):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", DATAAPP_RANKING_SYSTEM.format(direction=direction)),
+        Message("user", DATAAPP_RANKING_USER.format(
+            question=question, metric=metric, category=category, scope=scope,
+            sync_date=sync_date, period=period, direction=direction, rows=rows_json)),
+    ]
+
+
+SYNTHESIS_SYSTEM = """\
+You are given a user's question and several ALREADY-GROUNDED partial answers, \
+each from a different trusted source (historical data, latest daily figures, the \
+live network, network-operations updates, or a methodology definition). Combine \
+them into ONE cohesive answer.
+
+Rules you MUST follow:
+- Use ONLY the facts and numbers in the partial answers. NEVER recompute, sum, \
+average, or invent a number. Quote every figure exactly as given.
+- Keep each figure's context (which source / as-of date / entity it came from).
+- Write one flowing answer, not a list of fragments. Lead with the direct answer.
+- Do not drop a source's substantive fact; if two sources seem to conflict, say \
+so plainly rather than silently picking one.
+- Be concise.
+"""
+
+SYNTHESIS_USER_TEMPLATE = """\
+Question: {question}
+
+Partial answers to combine:
+{parts}
+
+Write the single combined answer."""
+
+
+AGG_SQL_SYSTEM = """\
+You are given a user's question and one or more in-memory tables (views) holding \
+already-fetched result rows. If the question asks for a figure computed ACROSS \
+the rows/tables — a combined total, a difference/comparison, a share/percentage, \
+or a ranking ("which is highest") — write ONE DuckDB SQL SELECT that computes it \
+over the given views. Otherwise output exactly: SELECT 'NO_AGG' AS note
+
+Rules:
+- Output ONLY a single SQL SELECT (a leading WITH is fine). No prose, no fences.
+- Use ONLY the listed view names and their listed columns. Never invent names.
+- Do the arithmetic in SQL (SUM/AVG/diff/ratio); never rely on outside numbers.
+- Keep it minimal: the columns needed to answer, with the aggregate applied.
+"""
+
+AGG_SQL_USER = """\
+Question: {question}
+
+Available views (name: columns):
+{views}
+
+Sample rows:
+{samples}
+
+Write the aggregation SQL, or SELECT 'NO_AGG' AS note if no cross-row figure is \
+needed."""
+
+
+def build_agg_sql_messages(question: str, views_desc: str, samples_json: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", AGG_SQL_SYSTEM),
+        Message("user", AGG_SQL_USER.format(
+            question=question, views=views_desc, samples=samples_json)),
+    ]
+
+
+def build_synthesis_messages(question: str, labelled: list[tuple[str, str]]):
+    from aiu_chat.agent.llm import Message
+
+    parts = "\n\n".join(f"[{label}]\n{text}" for label, text in labelled)
+    return [
+        Message("system", SYNTHESIS_SYSTEM),
+        Message("user", SYNTHESIS_USER_TEMPLATE.format(question=question, parts=parts)),
     ]
 
 

@@ -62,12 +62,19 @@ def _strip_comments_and_trailing_semi(sql: str) -> str:
     return sql.strip().rstrip(";").strip()
 
 
-def validate_sql(sql: str, catalog: Catalog | None = None) -> exp.Expression:
+def validate_sql(sql: str, catalog: Catalog | None = None,
+                 allowed_tables: set[str] | None = None) -> exp.Expression:
     """Validate that `sql` is a safe, single, read-only SELECT. Returns the AST.
+
+    `allowed_tables`, if given, overrides the catalog's table set — used by the
+    aggregation executor (#4) to permit only its in-memory frame views. The
+    single-SELECT / no-DDL-DML / no-file-function checks are unchanged.
 
     Raises UnsafeSQLError on any violation.
     """
-    catalog = catalog or get_catalog()
+    # Only need the catalog when we're checking against its table set.
+    if allowed_tables is None:
+        catalog = catalog or get_catalog()
     cleaned = _strip_comments_and_trailing_semi(sql)
     if not cleaned:
         raise UnsafeSQLError("Empty SQL.")
@@ -107,9 +114,10 @@ def validate_sql(sql: str, catalog: Catalog | None = None) -> exp.Expression:
         if name in _FORBIDDEN_FUNCS:
             raise UnsafeSQLError(f"Disallowed function: {name}().")
 
-    # Restrict table references to known catalog tables. CTE aliases are
+    # Restrict table references to known tables (catalog by default, or an
+    # explicit override set for the aggregation executor). CTE aliases are
     # references to in-query result sets, not base tables, so they are allowed.
-    allowed = catalog.table_names
+    allowed = allowed_tables if allowed_tables is not None else catalog.table_names
     cte_names = _cte_names(stmt)
     for table in stmt.find_all(exp.Table):
         tname = table.name

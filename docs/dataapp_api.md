@@ -1,78 +1,159 @@
 # EUROCONTROL Data App API — reference
 
-Authoritative notes for the `dataapp` query path. Base URL:
-`https://api-data-app.eurocontrol.int/api` (config `AIU_DATAAPP_BASE`).
+Authoritative, **verified-against-live** notes for the `dataapp` query path. Base
+URL: `https://api-data-app.eurocontrol.int/api` (config `AIU_DATAAPP_BASE`).
 
 - **Public, read-only, no auth.** GET only.
-- It is an **API Platform** (Symfony) API. Responses are `{ "meta": {...}, "data": [...] }`
-  (collections) with `meta.totalItems`, `meta.currentPage`, `meta.itemsPerPage`.
-- The full OpenAPI 3.1 spec is served at `/api/docs` with header
-  `Accept: application/vnd.openapi+json` (or `/api/docs.jsonopenapi`).
+- **API Platform** (Symfony). Responses are `{ "meta": {...}, "data": [...] }` for
+  collections, with `meta.totalItems`, `meta.currentPage`, `meta.itemsPerPage`.
+- API Platform **silently ignores unknown filter params** (it returns the full
+  set instead of erroring). So a filter that "does nothing" is usually a wrong
+  filter name — check against the exact names below, which come from the OpenAPI
+  spec (`components.schemas`).
 
-## The 3-hop query pattern (important)
+## The sync model — everything hangs off a *sync*
 
-You usually cannot ask for "traffic in France" directly. The metric endpoints
-are keyed by a **sync** (a per-stakeholder, per-date snapshot), so resolving a
-named entity to data takes up to three hops:
+Metric rows are keyed by a **sync**: a per-stakeholder, per-**day** snapshot. You
+cannot ask for "traffic in France" directly; you resolve a sync first, then read
+the metric off it. Two hops (or three if resolving a named entity):
 
-1. **Resolve the entity → id.** Filter the dimension endpoint by name/code:
-   - `GET /api/countries?name=France` → `data[0].id`, `iso2`, `icao`
-   - `GET /api/airports?code=EGLL` (or `?name=...`) → id
-   - `GET /api/air_navigation_service_providers?code=DSNA` → id
-   - `GET /api/aircraft_operators?code=...` → id
-2. **Find the relevant sync.** Filter `syncs` by the entity id + `dataType`,
-   newest first:
-   - `GET /api/syncs?country.id=7&dataType=country&order[syncDate]=desc&itemsPerPage=1`
-   - `dataType` matches the stakeholder kind: `country`, `airport`,
-     `air-navigation-service-provider`, `aircraft-operator`, `network`.
-     (Confirm exact strings from live `syncs` data — e.g. observed
-     `aircraft-operator`.)
-   - A sync has: `id`, `syncDate`, `dataType`, `code`, and the linked
-     `country` / `airport` / `airNavigationServiceProvider` / `aircraftOperator`.
-3. **Query the metric** filtering by the sync id (note the nested filter syntax):
-   - `GET /api/traffic_networks?traffic.sync.id=<syncId>`
-   - `GET /api/delay_networks?delay.sync.id=<syncId>`
-   - `GET /api/co2_networks?co2.sync.id=<syncId>`
-   - `GET /api/punctualities_networks?punctuality.sync.id=<syncId>`
+1. **Pick the sync.** `GET /syncs`, filtered by `dataType` (+ entity id, + date):
+   - `dataType` values are the live API's, **not** the tidy names you'd guess:
+     | conceptual kind | live `dataType` string |
+     |-----------------|------------------------|
+     | whole network   | `network-wide`         |
+     | a country/state | `state-specific`       |
+     | an airport      | `airport`              |
+     | an ANSP         | `air-navigation-service-provider` |
+     | an airline      | `aircraft-operator`    |
+   - Pin to a **specific day**: `syncDate[after]=YYYY-MM-DD&syncDate[before]=YYYY-MM-DD`
+     (equal bounds ⇒ that one day). Omit for the newest: `order[syncDate]=desc&itemsPerPage=1`.
+   - Filter by entity FK: `country.id`, `airport.id`, `airNavigationServiceProvider.id`,
+     `aircraftOperator.id`.
+   - `syncs` is ~460k rows — **always** filter + order + `itemsPerPage`.
+2. **Read the metric / ranking** filtered by the sync id (nested filter syntax below).
 
-For **network-wide** figures (no specific stakeholder), use `dataType=network`
-syncs and the `*_networks` endpoints directly with `networkType` / `dateRange`
-filters.
+To resolve a **named entity → id** first: `GET /countries?name=France` (or
+`?iso2=FR`), `GET /airports?code=EGLL` (or `?name=`), similarly
+`/air_navigation_service_providers`, `/aircraft_operators`.
+
+## Three query shapes (what the agent implements)
+
+### 1. Whole-network figure (optionally on a date)
+`GET /syncs?dataType=network-wide&syncDate[after]=2026-03-10&syncDate[before]=2026-03-10`
+→ sync id, then
+`GET /traffic_networks?traffic.sync.id=<sid>&itemsPerPage=30`.
+
+Rows carry `networkType` (`total`/`avg`), `dateRange` (`DY` day / `WK` 7-day /
+`MM` month / `Y2D` year-to-date), and `value` or `avgValue`.
+
+> **`total` vs `avg` matters.** For **punctuality**, the headline "arrival
+> punctuality %" is the `total` row's `value` — the `avg` row is a different
+> (average-of-days) figure. Verified: Poland Q1/2026 → `total` Y2D = 76.87 %
+> (≈ 77 %), whereas `avg` Y2D = 75.87 %. Quote `total` for a punctuality
+> percentage unless an average-of-days is explicitly asked.
+
+> **Verified:** flights on the network on **2026-03-10** = `DY total value` =
+> **24 864.0**.
+
+Same shape for `delay_networks`, `co2_networks`, `punctualities_networks`.
+
+### 2. Cross-entity ranking ("which one is highest/lowest")
+`GET /<metric>_ranking_datas` filtered by the sync + `rankingCategory`, ordered:
+```
+GET /punctualities_ranking_datas
+  ?punctualityRanking.punctuality.sync.id=<sid>
+  &punctualityRanking.punctuality.rankingCategory=airports
+  &dateRange=DY&order[value]=desc&itemsPerPage=30
+```
+- The filter chain is nested one level deeper than the metric filter:
+  `<prefix>Ranking.<prefix>.sync.id` and `.rankingCategory`
+  (prefixes: `traffic`, `delay`, `punctuality`; **co2 has no rankings**).
+- `rankingCategory` selects WHAT is ranked (OpenAPI `Traffic-read` enum):
+  `states`, `airports`, `airport_pairs`, `aircraft_operators`,
+  `area_control_center`, `map_area_control_center`, `network`,
+  `flight_breakdown`, `market_segments`, `breakdown`.
+  Using the right category avoids the interleaving you get otherwise (a raw
+  ranking mixes countries + airports).
+- Order by `value` for a day (`DY`/`WK`/`MM`); by **`avgValue`** for `Y2D`
+  (yearly), where `avgValue` is the daily average. `order[...]=asc` for "lowest".
+- Rows: `name`, `value`, `avgValue`, `rankNumber`, `share`, `dateRange`.
+
+> **Verified (network-wide sync for the day):**
+> - highest arrival punctuality on **2025-03-10** (`airports`, DY, desc) →
+>   **Yerevan** (value 1.0).
+> - most ATFM delay on **2025-03-10** (`delay`, `states`, DY, desc) →
+>   **Portugal** (5 573 min).
+
+**Scoped rankings** (a ranking *within* one entity) use that entity's sync:
+- busiest **airport pairs for an airline**: resolve the airline → its
+  `aircraft-operator` sync → `traffic_ranking_datas?...rankingCategory=airport_pairs`.
+- busiest **airline in a country**: the country's `state-specific` sync →
+  `rankingCategory=aircraft_operators`.
+- busiest **destination from an airport**: the airport's `airport` sync →
+  `rankingCategory=airports` (an airport's data ranks *destination airports*, NOT
+  pairs — `airport_pairs` is not populated on an airport sync).
+
+> **Verified:** `aircraft_operators` on Estonia's sync (Y2D) → **airBaltic** #1
+> (~27 daily). `airport_pairs` on British Airways Group's sync → Glasgow /
+> Edinburgh ⟷ London Heathrow at the top (~21 daily). `airports` on Hamburg's
+> sync (Y2D 2024) → **Munich** #1 (~13 daily).
+
+**Both extremes at once** ("the airports with the highest AND lowest
+punctuality"): fetch the ranking descending with a large `itemsPerPage`, then the
+first row is the highest and the last row is the lowest — no second call needed
+(verified Q1/2026: **Ibiza** highest / **Paris Le Bourget** lowest).
+
+**Yearly / quarter questions:** there is no "year" filter — pick the sync at the
+**end of the period** and read `Y2D`. For "2025" use a late-Dec-2025 sync
+(`syncDate` ≈ `2025-12-31`) + `dateRange=Y2D` (`avgValue` = 2025 daily average).
+For "Q1/2026" use a sync ≈ `2026-03-31`. (The exact daily average a user sees
+depends on which day's sync they read — annual figures are vintage-sensitive.)
+
+> **Ranking stability caveat.** A Y2D ranking's *order* near the top can hinge on
+> tiny daily-average differences and the read-date. Example: British Airways'
+> busiest 2025 airport pair is **Edinburgh ⟷ Heathrow** (~21.2 Y2D) on **every**
+> 2025 sync date sampled — Glasgow ⟷ Heathrow is consistently 2nd–3rd (~19–21).
+> If an external answer key says "Glasgow", it does not reproduce from this API
+> for any 2025 date; report what the API actually returns rather than forcing a
+> match.
+
+### 3. Per-entity figure (existing path, now date-aware)
+Resolve entity → its sync (optionally for a date) → `<metric>_networks`
+filtered by `<prefix>.sync.id`. Supports per-question fan-out over several named
+entities.
 
 ## Endpoints
 
-**Dimensions (resolve name/code → id):**
-`/api/countries` (filters: `name`, `iso2`), `/api/airports` (`name`, `code`),
-`/api/air_navigation_service_providers` (`name`, `code`),
-`/api/aircraft_operators` (`name`, `code`).
+**Dimensions:** `/countries` (`name`, `iso2`), `/airports` (`name`, `code`),
+`/air_navigation_service_providers` (`name`, `code`), `/aircraft_operators`
+(`name`, `code`).
 
-**Syncs:** `/api/syncs` — filters: `country.id`, `airport.id`,
+**Syncs:** `/syncs` — `country.id`, `airport.id`,
 `airNavigationServiceProvider.id`, `aircraftOperator.id`, `dataType`,
 `syncDate[before|after|strictly_before|strictly_after]`, `order[syncDate]`.
 
-**Metrics** (each has base / `_charts` / `_networks` / `_rankings` variants):
-- Traffic: `/api/traffic`, `/api/traffic_networks`, `/api/traffic_charts`,
-  `/api/traffic_rankings`, `/api/traffic_ranking_datas`
-- ATFM delay: `/api/delays`, `/api/delay_networks`, `/api/delay_charts`,
-  `/api/delay_rankings`, `/api/delay_ranking_datas`
-- CO2: `/api/co2s`, `/api/co2_networks`, `/api/co2_charts`
-- Punctuality: `/api/punctualities`, `/api/punctualities_networks`,
-  `/api/punctualities_charts`, `/api/punctualities_rankings`,
-  `/api/punctualities_ranking_datas`
-- Billing: `/api/billeds`, `/api/billed_networks`, `/api/billed_charts`
+**Metrics** (28 GET paths total; each metric has base / `_networks` / `_charts`
+and — traffic/delay/punctuality only — `_rankings` / `_ranking_datas`):
+- Traffic: `/traffic`, `/traffic_networks`, `/traffic_charts`,
+  `/traffic_rankings`, `/traffic_ranking_datas`
+- ATFM delay: `/delays`, `/delay_networks`, `/delay_charts`,
+  `/delay_rankings`, `/delay_ranking_datas`
+- CO2: `/co2s`, `/co2_networks`, `/co2_charts`  *(no rankings)*
+- Punctuality: `/punctualities`, `/punctualities_networks`,
+  `/punctualities_charts`, `/punctualities_rankings`, `/punctualities_ranking_datas`
+- Billing: `/billeds`, `/billed_networks`, `/billed_charts`
 
-Common metric filters: `*.sync.id`, `*.sync.dataType`, `*.rankingCategory`,
-`dateRange`, `networkType`, and `*.sync.syncDate[before|after]`.
+**Content:** `/news`, `/situation_reports`.
 
-**Content:** `/api/news` (published news), `/api/situation_reports` (network
-situation reports).
+**Enums** (from OpenAPI): `dateRange` = `DY|WK|MM|Y2D`; `rankingType` =
+`top|top_prev`; `rankingCategory` = see list above.
 
-## Pagination / shaping
+## Fetching the OpenAPI spec
 
-- `itemsPerPage`, `currentPage`. Default page size is small; set `itemsPerPage`
-  explicitly. `syncs` is huge (~460k items) — always filter and order it.
-- `order[<field>]` for sorting (e.g. `order[syncDate]=desc`, `order[name]=asc`).
-
-> Verify `dataType` strings and metric→sync filter names against live responses
-> during ingestion; API Platform names them from the entity graph and they can
-> shift between versions (current: 5.0.0).
+`/api/docs` returns an HTML shell (a `{data: ...}` wrapper), **not** the raw
+spec. To get the machine-readable spec, request it with
+`Accept: application/vnd.openapi+json` from a browser context, or download it via
+the interactive docs page. The spec we validated against is API Platform version
+5.0.0; re-verify `dataType`/`rankingCategory` strings on a refresh — API Platform
+derives them from the entity graph and they can shift between versions.

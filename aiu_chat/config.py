@@ -130,6 +130,38 @@ OLLAMA_TIMEOUT = int(os.getenv("AIU_OLLAMA_TIMEOUT", "180"))
 # benefit on deterministic SQL/JSON generation. Set to "1"/"true" to re-enable.
 OLLAMA_THINK = os.getenv("AIU_OLLAMA_THINK", "false").lower() in ("1", "true", "yes")
 
+# --- Multi-source planner (feature #2) -------------------------------------
+# When true, the router may select MORE THAN ONE source for a question (e.g. a
+# live daily figure + a historical average + a methodology definition), and a
+# synthesis pass stitches the grounded sub-answers into one. Off -> exactly the
+# prior single-route behaviour.
+MULTI_SOURCE = os.getenv("AIU_MULTI_SOURCE", "true").lower() in ("1", "true", "yes")
+# Cap on how many sources one question may fan out to (bounds latency/cost).
+MAX_ROUTES = int(os.getenv("AIU_MAX_ROUTES", "3"))
+
+# --- Cross-frame aggregation (feature #4) ----------------------------------
+# When true, a turn that produced several tabular frames (multi-source / fan-out)
+# and asks for a cross-frame figure (combined total, difference, which-most) runs
+# ONE deterministic aggregation SQL over those frames and narrates it — the model
+# never does the arithmetic. Opt-in (default OFF): the most complex, least common
+# path. Numbers still come from an executed query.
+AGGREGATION = os.getenv("AIU_AGGREGATION", "false").lower() in ("1", "true", "yes")
+
+# --- Per-source fan-out (feature #3) ---------------------------------------
+# When true, a question naming several entities for a per-entity live source
+# (the Data App API) fans out to one fetch each and merges them into one answer
+# ("compare traffic for FR, DE, ES"). Off -> single entity (prior behaviour).
+FANOUT = os.getenv("AIU_FANOUT", "true").lower() in ("1", "true", "yes")
+# Cap on entities fetched per question (bounds live-API call count).
+MAX_FANOUT = int(os.getenv("AIU_MAX_FANOUT", "5"))
+
+# --- Entity / knowledge layer ----------------------------------------------
+# When true, the SQL prompt is enriched with resolved canonical entities (from
+# data/entities.json) so generated SQL filters on the right column/literal
+# (e.g. STATE_NAME='UNITED KINGDOM' in the CO2 table vs 'United Kingdom' in the
+# airport tables). Advisory only — an unresolved entity falls back to the model.
+ENTITY_LAYER = os.getenv("AIU_ENTITY_LAYER", "true").lower() in ("1", "true", "yes")
+
 # --- Retrieval -------------------------------------------------------------
 # With a large PDF-inclusive corpus, give the model a few more candidates.
 TOP_K = int(os.getenv("AIU_TOP_K", "8"))

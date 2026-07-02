@@ -234,13 +234,24 @@ def _render_turn(turn, idx):
         return
 
     # Show how the question was routed (transparency into the agent's choice).
-    label, why = ROUTE_INFO.get(turn.route, (turn.route, ""))
+    # Multi-source turns show a chip per source; single-source shows one.
+    routes = getattr(turn, "routes", None) or [turn.route]
+    chips = []
+    whys = []
+    for r in routes:
+        label, why = ROUTE_INFO.get(r, (r, ""))
+        chips.append(_chip(label))
+        if why:
+            whys.append(f"**{label}** — {why}")
+    if len(routes) > 1:
+        chips.insert(0, _chip("🔀 Multi-source"))
+    st.markdown(" ".join(chips), unsafe_allow_html=True)
+    detail = "\n\n".join(whys)
     if turn.standalone_question and turn.standalone_question != turn.question:
-        why += f"\n\nInterpreted your question as: *{turn.standalone_question}*"
-    st.markdown(_chip(label), unsafe_allow_html=True)
-    if why:
+        detail += f"\n\nInterpreted your question as: *{turn.standalone_question}*"
+    if detail:
         with st.expander("How I answered this"):
-            st.markdown(why)
+            st.markdown(detail)
 
     st.markdown(turn.answer)
 
@@ -266,17 +277,27 @@ def _render_turn(turn, idx):
                 st.text(m.text[:1500])
         st.markdown(_chip("📡 NOP · live", "src"), unsafe_allow_html=True)
 
-    # Data App figures: D-1 (latest daily), not real-time — note entity + date.
-    if turn.dataapp is not None and turn.dataapp.result is not None:
-        r = turn.dataapp.result
-        st.markdown(
-            _chip(f"📅 Data App · {r.entity.name} · {r.sync_date} (D-1)", "src"),
-            unsafe_allow_html=True,
+    # Data App figures: D-1 (latest daily), not real-time — one chip per entity
+    # looked up (fan-out shows several).
+    if turn.dataapp is not None and turn.dataapp.results:
+        chips = " ".join(
+            _chip(f"📅 Data App · {r.entity.name} · {r.sync_date} (D-1)", "src")
+            for r in turn.dataapp.results
         )
+        st.markdown(chips, unsafe_allow_html=True)
 
     # NM live snapshot: genuinely real-time.
     if turn.nm_live is not None and turn.nm_live.snapshot is not None:
         st.markdown(_chip("🟢 Network Manager · live", "src"), unsafe_allow_html=True)
+
+    # Cross-frame aggregate (#4): show the computed figure + its SQL (auditable).
+    agg = getattr(turn, "aggregate", None)
+    if agg is not None and agg.dataframe is not None and not agg.dataframe.empty:
+        st.markdown(_chip("🧮 Combined figure (computed)"), unsafe_allow_html=True)
+        st.dataframe(agg.dataframe, use_container_width=True, hide_index=True,
+                     key=f"agg_{idx}")
+        with st.expander("Show aggregation SQL"):
+            st.code(agg.sql, language="sql")
 
     if turn.sources:
         seen = []
