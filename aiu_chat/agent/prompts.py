@@ -258,12 +258,17 @@ You translate a question into a EUROCONTROL Data App API request. Output ONLY a 
 JSON object, nothing else:
 {
   "metric": "traffic" | "delay" | "co2" | "punctuality",
-  "entity_kind": "country" | "airport" | "ansp" | "aircraft_operator",
-  "entity": "<the name or code, e.g. 'France', 'EGLL', 'DSNA'>"
+  "entities": [
+    {"entity_kind": "country"|"airport"|"ansp"|"aircraft_operator",
+     "entity": "<name or code, e.g. 'France', 'EGLL', 'DSNA'>"}
+  ]
 }
 
 - "traffic" = number of flights; "delay" = ATFM delay; "co2" = CO2 emissions; \
-"punctuality" = on-time performance.
+"punctuality" = on-time performance. ONE metric applies to all entities.
+- List EVERY entity the question names (e.g. "France, Germany and Spain" -> three \
+entries). For a single entity, a one-element list. Only include entities the user \
+actually named; do not invent extras.
 - Use entity_kind "country" for a state/country, "airport" for an airport (use \
 its ICAO code if given), "ansp" for an air navigation service provider, \
 "aircraft_operator" for an airline.

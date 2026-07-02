@@ -139,6 +139,14 @@ MULTI_SOURCE = os.getenv("AIU_MULTI_SOURCE", "true").lower() in ("1", "true", "y
 # Cap on how many sources one question may fan out to (bounds latency/cost).
 MAX_ROUTES = int(os.getenv("AIU_MAX_ROUTES", "3"))
 
+# --- Per-source fan-out (feature #3) ---------------------------------------
+# When true, a question naming several entities for a per-entity live source
+# (the Data App API) fans out to one fetch each and merges them into one answer
+# ("compare traffic for FR, DE, ES"). Off -> single entity (prior behaviour).
+FANOUT = os.getenv("AIU_FANOUT", "true").lower() in ("1", "true", "yes")
+# Cap on entities fetched per question (bounds live-API call count).
+MAX_FANOUT = int(os.getenv("AIU_MAX_FANOUT", "5"))
+
 # --- Entity / knowledge layer ----------------------------------------------
 # When true, the SQL prompt is enriched with resolved canonical entities (from
 # data/entities.json) so generated SQL filters on the right column/literal

@@ -277,13 +277,14 @@ def _render_turn(turn, idx):
                 st.text(m.text[:1500])
         st.markdown(_chip("📡 NOP · live", "src"), unsafe_allow_html=True)
 
-    # Data App figures: D-1 (latest daily), not real-time — note entity + date.
-    if turn.dataapp is not None and turn.dataapp.result is not None:
-        r = turn.dataapp.result
-        st.markdown(
-            _chip(f"📅 Data App · {r.entity.name} · {r.sync_date} (D-1)", "src"),
-            unsafe_allow_html=True,
+    # Data App figures: D-1 (latest daily), not real-time — one chip per entity
+    # looked up (fan-out shows several).
+    if turn.dataapp is not None and turn.dataapp.results:
+        chips = " ".join(
+            _chip(f"📅 Data App · {r.entity.name} · {r.sync_date} (D-1)", "src")
+            for r in turn.dataapp.results
         )
+        st.markdown(chips, unsafe_allow_html=True)
 
     # NM live snapshot: genuinely real-time.
     if turn.nm_live is not None and turn.nm_live.snapshot is not None:
