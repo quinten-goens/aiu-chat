@@ -49,6 +49,38 @@ def _fmt(dt: str) -> str:
     return (dt or "").replace("T", " ").replace("Z", "")[:19]
 
 
+def _render_logged_evidence(t: dict, key: str) -> None:
+    """Render a logged turn/sub-turn's SQL, chart+table, and live payload.
+
+    `t` is either the top-level turn record or one of its `sub_turns` entries;
+    both share the same evidence keys. `key` makes Streamlit element ids unique."""
+    if t.get("sql"):
+        with st.expander("SQL"):
+            st.code(t["sql"], language="sql")
+
+    table = t.get("result_table")
+    if table:
+        try:
+            df = pd.DataFrame(table)
+        except Exception:
+            df = None
+        if df is not None and not df.empty:
+            spec = t.get("chart_spec")
+            if spec:
+                fig = make_chart(spec, df)
+                if fig is not None:
+                    st.plotly_chart(fig, use_container_width=True, key=f"av_chart_{key}")
+            st.dataframe(df, use_container_width=True, hide_index=True, key=f"av_df_{key}")
+            if t.get("row_count"):
+                st.caption(f"{t['row_count']} row(s)"
+                           + (" (truncated)" if t.get("truncated") else ""))
+
+    live = t.get("live_payload")
+    if live:
+        with st.expander("Live source payload"):
+            st.json(live)
+
+
 def _render_turn(t: dict, i: int) -> None:
     """Render one logged turn (question + full trace)."""
     q = t.get("question") or "(no question)"
@@ -82,22 +114,18 @@ def _render_turn(t: dict, i: int) -> None:
         with st.expander("SQL"):
             st.code(t["sql"], language="sql")
 
-    table = t.get("result_table")
-    if table:
-        try:
-            df = pd.DataFrame(table)
-        except Exception:
-            df = None
-        if df is not None and not df.empty:
-            spec = t.get("chart_spec")
-            if spec:
-                fig = make_chart(spec, df)
-                if fig is not None:
-                    st.plotly_chart(fig, use_container_width=True, key=f"av_chart_{i}")
-            st.dataframe(df, use_container_width=True, hide_index=True, key=f"av_df_{i}")
-            if t.get("row_count"):
-                st.caption(f"{t['row_count']} row(s)"
-                           + (" (truncated)" if t.get("truncated") else ""))
+    _render_logged_evidence(t, f"{i}")
+
+    # Compound (decomposed) turn: each part carries its own question + evidence.
+    for j, sub in enumerate(t.get("sub_turns") or []):
+        with st.container(border=True):
+            head = f"Part {j + 1}: {sub.get('question') or ''}"
+            if sub.get("route"):
+                head += f"  ·  `{sub['route']}`"
+            st.markdown(head)
+            if sub.get("answer"):
+                st.markdown(sub["answer"])
+            _render_logged_evidence(sub, f"{i}_{j}")
 
     sources = t.get("sources")
     if sources:
@@ -106,11 +134,6 @@ def _render_turn(t: dict, i: int) -> None:
                 title = s.get("title") or "(untitled)"
                 url = s.get("url") or ""
                 st.markdown(f"- [{title}]({url})" if url else f"- {title}")
-
-    live = t.get("live_payload")
-    if live:
-        with st.expander("Live source payload"):
-            st.json(live)
 
     st.divider()
 

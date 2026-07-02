@@ -155,6 +155,18 @@ FANOUT = os.getenv("AIU_FANOUT", "true").lower() in ("1", "true", "yes")
 # Cap on entities fetched per question (bounds live-API call count).
 MAX_FANOUT = int(os.getenv("AIU_MAX_FANOUT", "5"))
 
+# --- Question decomposition (feature #5) -----------------------------------
+# When true, a compound question that bundles several INDEPENDENT sub-questions
+# ("flights on the network on 10 Mar 2026 AND punctuality at LEBL on 10 Mar
+# 2025", "traffic in France this year and how is ASMA time defined") is split
+# into standalone sub-questions, each answered through the full route pipeline,
+# and the grounded sub-answers are synthesised into one. Off -> the whole
+# question is answered as a single unit (prior behaviour). One extra LLM call
+# per turn to detect the split; skipped cheaply for plainly single questions.
+DECOMPOSE = os.getenv("AIU_DECOMPOSE", "true").lower() in ("1", "true", "yes")
+# Cap on how many sub-questions one question may split into (bounds latency/cost).
+MAX_SUBQUESTIONS = int(os.getenv("AIU_MAX_SUBQUESTIONS", "4"))
+
 # --- Entity / knowledge layer ----------------------------------------------
 # When true, the SQL prompt is enriched with resolved canonical entities (from
 # data/entities.json) so generated SQL filters on the right column/literal

@@ -63,16 +63,37 @@ def _live_payload(turn) -> dict | None:
         ]
 
     dataapp = getattr(turn, "dataapp", None)
-    if dataapp is not None and getattr(dataapp, "result", None) is not None:
-        r = dataapp.result
-        ent = getattr(r, "entity", None)
-        payload["dataapp"] = {
-            "entity": getattr(ent, "name", None),
-            "entity_kind": getattr(ent, "kind", None),
-            "sync_date": getattr(r, "sync_date", None),
-            "metric": getattr(r, "metric", None),
-            "values": _json_safe(getattr(r, "values", None)),
-        }
+    if dataapp is not None:
+        results = getattr(dataapp, "results", None) or (
+            [dataapp.result] if getattr(dataapp, "result", None) is not None else [])
+        entries = []
+        for r in results:
+            ent = getattr(r, "entity", None)
+            entries.append({
+                "entity": getattr(ent, "name", None),
+                "entity_kind": getattr(ent, "kind", None),
+                "sync_date": getattr(r, "sync_date", None),
+                "metric": getattr(r, "metric", None),
+                "records": _json_safe(getattr(r, "records", None)),
+            })
+        net = getattr(dataapp, "network", None)
+        if net is not None:
+            entries.append({
+                "entity": "Network", "sync_date": getattr(net, "sync_date", None),
+                "metric": getattr(net, "metric", None),
+                "records": _json_safe(getattr(net, "records", None)),
+            })
+        rank = getattr(dataapp, "ranking", None)
+        if rank is not None:
+            entries.append({
+                "ranking_category": getattr(rank, "category", None),
+                "scope": getattr(rank, "scope", None),
+                "sync_date": getattr(rank, "sync_date", None),
+                "metric": getattr(rank, "metric", None),
+                "rows": _json_safe(getattr(rank, "rows", None)),
+            })
+        if entries:
+            payload["dataapp"] = entries
 
     nm = getattr(turn, "nm_live", None)
     if nm is not None and getattr(nm, "snapshot", None) is not None:
@@ -87,19 +108,39 @@ def _live_payload(turn) -> dict | None:
     return _json_safe(payload) or None
 
 
-def build_turn_record(turn, *, turn_index: int, model_tier: str | None,
-                      latency_ms: int | None, error: str | None = None) -> dict:
-    """Build the `chat_turns` record body for a completed Turn."""
+def _evidence(turn) -> dict:
+    """The grounded artifacts of ONE turn: SQL, chart spec, result table, and any
+    live-source payload. Reused for a plain turn and each sub-turn of a compound
+    (decomposed) answer, so no per-part figure is lost from the log."""
+    out: dict = {}
     data = getattr(turn, "data", None)
     result = getattr(data, "result", None) if data is not None else None
     df = getattr(result, "dataframe", None) if result is not None else None
+    if data is not None:
+        out["sql"] = getattr(data, "sql", None) or ""
+        out["chart_spec"] = _json_safe(getattr(data, "chart_spec", None))
+    if result is not None:
+        out["row_count"] = int(getattr(result, "row_count", 0) or 0)
+        out["truncated"] = bool(getattr(result, "truncated", False))
+        out["result_table"] = _dataframe_records(df)
+    live = _live_payload(turn)
+    if live:
+        out["live_payload"] = live
+    return out
 
+
+def build_turn_record(turn, *, turn_index: int, model_tier: str | None,
+                      latency_ms: int | None, error: str | None = None) -> dict:
+    """Build the `chat_turns` record body for a completed Turn."""
+    routes = getattr(turn, "routes", None) or [getattr(turn, "route", "") or ""]
     record: dict = {
         "turn_index": turn_index,
         "created_at": _pb_now(),
         "question": getattr(turn, "question", "") or "",
         "standalone_question": getattr(turn, "standalone_question", "") or "",
-        "route": getattr(turn, "route", "") or "",
+        # For a compound turn the primary route alone understates it — record the
+        # union so the log reflects every path used.
+        "route": "+".join(r for r in routes if r) or (getattr(turn, "route", "") or ""),
         "needs_clarification": bool(getattr(turn, "needs_clarification", False)),
         "answer": getattr(turn, "answer", "") or "",
         "model_tier": model_tier or "",
@@ -109,17 +150,22 @@ def build_turn_record(turn, *, turn_index: int, model_tier: str | None,
     if error:
         record["error"] = str(error)[:20000]
 
-    if data is not None:
-        record["sql"] = getattr(data, "sql", None) or ""
-        record["chart_spec"] = _json_safe(getattr(data, "chart_spec", None))
-    if result is not None:
-        record["row_count"] = int(getattr(result, "row_count", 0) or 0)
-        record["truncated"] = bool(getattr(result, "truncated", False))
-        record["result_table"] = _dataframe_records(df)
+    sub_turns = getattr(turn, "sub_turns", None)
+    if sub_turns:
+        # Compound answer: capture each part's question + route + evidence so the
+        # viewer can show every sub-answer's SQL/table/live payload.
+        record["sub_turns"] = _json_safe([
+            {
+                "question": getattr(st, "standalone_question", "") or "",
+                "route": "+".join(getattr(st, "routes", None)
+                                  or [getattr(st, "route", "") or ""]),
+                "answer": getattr(st, "answer", "") or "",
+                **_evidence(st),
+            }
+            for st in sub_turns
+        ])
+    else:
+        record.update(_evidence(turn))
 
     record["sources"] = _sources_payload(getattr(turn, "sources", []))
-    live = _live_payload(turn)
-    if live:
-        record["live_payload"] = live
-
     return record

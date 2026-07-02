@@ -42,7 +42,8 @@ def test_route_defaults_to_data_on_garbage():
 # --- clarification ---------------------------------------------------------
 
 class _SeqClient:
-    """Returns queued chat_json dicts in order (route call, then clarify call)."""
+    """Returns queued chat_json dicts in order (decompose call, route call, then
+    clarify call)."""
 
     def __init__(self, json_seq, chat_text=""):
         self._seq = list(json_seq)
@@ -74,8 +75,10 @@ def test_needs_clarification_skipped_for_concept_route():
 
 
 def test_clarification_turn_short_circuits_dispatch():
-    # route=data, then clarify asks a question -> no data path called.
+    # decompose (single part), route=data, then clarify asks a question
+    # -> no data path called.
     client = _SeqClient([
+        {"questions": ["show me the delays"]},
         {"route": "data"},
         {"needs_clarification": True, "question": "Which airport?"},
     ])
@@ -299,3 +302,102 @@ def test_none_route_declines_without_calling_paths():
     mnm.assert_not_called()
     assert turn.route == "none"
     assert "outside" in turn.answer.lower()
+
+
+# --- question decomposition (#5) -------------------------------------------
+
+def test_decompose_single_part_falls_back_to_original():
+    from aiu_chat.agent.orchestrator import decompose_question
+    # A one-element list means "not compound" -> answer the original verbatim.
+    c = FakeClient(json_obj={"questions": ["How many flights on the network today?"]})
+    assert decompose_question("How many flights on the network today?", c) == \
+        ["How many flights on the network today?"]
+
+
+def test_decompose_splits_multi_part():
+    from aiu_chat.agent.orchestrator import decompose_question
+    parts = ["How many flights on the network on 10 March 2026?",
+             "What was punctuality at Barcelona on 10 March 2025?"]
+    c = FakeClient(json_obj={"questions": parts})
+    assert decompose_question("flights ... and punctuality ...", c) == parts
+
+
+def test_decompose_malformed_falls_back():
+    from aiu_chat.agent.orchestrator import decompose_question
+    # No "questions" key, or a non-list -> single-question fallback (never breaks).
+    assert decompose_question("q", FakeClient(json_obj={})) == ["q"]
+    assert decompose_question("q", FakeClient(json_obj={"questions": "nope"})) == ["q"]
+
+
+def test_decompose_caps_subquestions(monkeypatch):
+    from aiu_chat import config
+    from aiu_chat.agent.orchestrator import decompose_question
+    monkeypatch.setattr(config, "MAX_SUBQUESTIONS", 2)
+    c = FakeClient(json_obj={"questions": ["a", "b", "c", "d"]})
+    assert decompose_question("a and b and c and d", c) == ["a", "b"]
+
+
+class _DecomposeClient:
+    """chat_json returns the decompose split first, then a fixed route dict for
+    each sub-question; chat() returns a fixed synthesis string."""
+
+    def __init__(self, parts, route_obj, synth_text):
+        self._parts = parts
+        self._route_obj = route_obj
+        self._synth = synth_text
+        self._first = True
+
+    def chat_json(self, messages, temperature=0.0):
+        if self._first:
+            self._first = False
+            return {"questions": self._parts}
+        return self._route_obj  # every sub-question routes the same way
+
+    def chat(self, messages, temperature=0.0, json_mode=False):
+        return self._synth
+
+
+def test_compound_answers_each_part_and_synthesizes(monkeypatch):
+    from aiu_chat import config
+    monkeypatch.setattr(config, "DECOMPOSE", True)
+    parts = ["How many flights on the network on 10 March 2026?",
+             "How many flights on the network on 10 March 2025?"]
+    client = _DecomposeClient(parts, {"routes": ["dataapp"]},
+                              "On 10 Mar 2026 there were 24,864; on 10 Mar 2025 there were 23,000.")
+
+    calls = []
+
+    def fake_dataapp(q, *, client=None):
+        calls.append(q)
+        return _dataapp_answer(f"answer for: {q}")
+
+    with patch.object(orch, "answer_dataapp_question", side_effect=fake_dataapp):
+        turn = answer("flights on the network on 10 Mar 2026 and on 10 Mar 2025",
+                      client=client, catalog=object())
+
+    # Both sub-questions were dispatched independently.
+    assert calls == parts
+    # Two sub-turns are retained (for the UI's per-part evidence).
+    assert len(turn.sub_turns) == 2
+    # The synthesised prose is the combined answer.
+    assert "24,864" in turn.answer and "23,000" in turn.answer
+
+
+def test_compound_clarification_short_circuits(monkeypatch):
+    # If a sub-question needs clarification, ask that one and stop (don't merge).
+    from aiu_chat import config
+    monkeypatch.setattr(config, "DECOMPOSE", True)
+    parts = ["Show me the delays", "How many flights on the network today?"]
+
+    # decompose -> split; then first sub-question routes to data and clarifies.
+    client = _SeqClient([
+        {"questions": parts},          # decompose
+        {"routes": ["data"]},          # route for sub-question 1
+        {"needs_clarification": True, "question": "Which airport?"},  # clarify #1
+    ])
+    with patch.object(orch, "answer_data_question") as md:
+        turn = answer("show me the delays and flights on the network today",
+                      client=client, catalog=object())
+    md.assert_not_called()
+    assert turn.needs_clarification is True
+    assert turn.answer == "Which airport?"
