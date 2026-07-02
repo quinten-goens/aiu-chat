@@ -297,6 +297,8 @@ def _frame_name(metric: str) -> str:
 
 
 def _answer_timeseries(question, spec, client, fetch_ts) -> DataAppAnswer:
+    from aiu_chat import config
+
     import pandas as pd
 
     metrics = _ts_metrics(spec)
@@ -314,31 +316,41 @@ def _answer_timeseries(question, spec, client, fetch_ts) -> DataAppAnswer:
                    "(e.g. from 1 January 2026 to 1 May 2026).", ok=False)
     start, end = _date({"date": start}), _date({"date": end})
 
-    # Single entity for the series (or the whole network). Reuse the entity list;
-    # a period series is one subject, so take the first named entity.
-    entities = _extract_entities(spec)
-    kind, query = (entities[0] if entities else (None, None))
+    # One series per named entity (compare France vs Germany daily traffic on one
+    # chart), or the whole network when none is named. Each (entity, metric) pair
+    # is fetched; per-metric rows for ALL entities go into one long frame tagged
+    # with an `entity` column, so the chart can split by it and the manipulator
+    # can GROUP BY / PARTITION BY it. Cap the fan-out to be a polite scraper.
+    targets = _extract_entities(spec) or [(None, None)]
+    if not config.FANOUT:
+        targets = targets[:1]
+    else:
+        targets = targets[: config.MAX_FANOUT]
+    multi_entity = len(targets) > 1
 
-    # Fetch each needed metric as its own daily frame.
+    # per_metric[metric] -> list of TimeseriesResult (one per entity that had data)
+    per_metric: dict[str, list[TimeseriesResult]] = {}
     series: list[TimeseriesResult] = []
-    frames: dict = {}
     truncated = False
     errors: list[str] = []
-    entity_name = "the network"
-    for metric in metrics:
-        try:
-            ts = fetch_ts(metric, start=start, end=end, kind=kind, query=query)
-        except DataAppError as exc:
-            errors.append(f"{metric}: {exc}")
-            continue
-        if not ts.rows:
-            errors.append(f"{metric}: no data in period")
-            continue
-        series.append(ts)
-        truncated = truncated or ts.truncated
-        entity_name = ts.entity.name
-        df = pd.DataFrame(ts.rows)
-        frames[_frame_name(metric)] = df
+    entity_names: list[str] = []
+    for kind, query in targets:
+        for metric in metrics:
+            try:
+                ts = fetch_ts(metric, start=start, end=end, kind=kind, query=query)
+            except DataAppError as exc:
+                who = query or "the network"
+                errors.append(f"{who} {metric}: {exc}")
+                continue
+            if not ts.rows:
+                who = query or "the network"
+                errors.append(f"{who} {metric}: no data in period")
+                continue
+            series.append(ts)
+            per_metric.setdefault(metric, []).append(ts)
+            truncated = truncated or ts.truncated
+            if ts.entity.name not in entity_names:
+                entity_names.append(ts.entity.name)
 
     if not series:
         detail = "; ".join(errors) if errors else "no data"
@@ -346,7 +358,24 @@ def _answer_timeseries(question, spec, client, fetch_ts) -> DataAppAnswer:
             question=question,
             answer=f"No Data App series found for that period ({detail}).", ok=False)
 
-    metric_line = ", ".join(s.metric for s in series)
+    # Build one long frame per metric: [date, (entity,) value, avgValue]. The
+    # `entity` column is only added when more than one entity actually returned
+    # data, so single-entity/network frames stay exactly as before.
+    include_entity = multi_entity and len(entity_names) > 1
+    frames: dict = {}
+    for metric, results in per_metric.items():
+        parts = []
+        for ts in results:
+            df = pd.DataFrame(ts.rows)
+            if include_entity:
+                df.insert(1, "entity", ts.entity.name)
+            parts.append(df)
+        combined = pd.concat(parts, ignore_index=True) if len(parts) > 1 else parts[0]
+        combined = combined.sort_values("date").reset_index(drop=True)
+        frames[_frame_name(metric)] = combined
+
+    entity_name = ", ".join(entity_names) if include_entity else entity_names[0]
+    metric_line = ", ".join(sorted({s.metric for s in series}, key=metrics.index))
 
     # Build the frame the user sees: raw single series, or (optionally) the
     # manipulated/derived result. The manipulator runs deterministic SQL — the
@@ -390,6 +419,8 @@ def _maybe_manipulate(question, spec, frames, series, client):
 
     # The default frame the user sees if no transform runs: the single raw series
     # (or, for multi-metric, a date-joined wide frame so the table is coherent).
+    # A frame may carry an `entity` column (multi-entity comparison); join on both
+    # date AND entity then so metrics line up per (day, entity), never cross-join.
     if len(frames) == 1:
         raw_df = next(iter(frames.values()))
     else:
@@ -397,9 +428,11 @@ def _maybe_manipulate(question, spec, frames, series, client):
         for name, df in frames.items():
             metric = name[:-3]  # strip "_ts"
             renamed = df.rename(columns={"value": metric, "avgValue": f"{metric}_avg"})
+            join_on = ["date"] + (["entity"] if "entity" in renamed.columns else [])
             raw_df = renamed if raw_df is None else raw_df.merge(
-                renamed, on="date", how="outer")
-        raw_df = raw_df.sort_values("date").reset_index(drop=True)
+                renamed, on=join_on, how="outer")
+        sort_cols = ["date"] + (["entity"] if "entity" in raw_df.columns else [])
+        raw_df = raw_df.sort_values(sort_cols).reset_index(drop=True)
 
     transform = (spec.get("transform") or "").strip()
     need_transform = len(frames) > 1 or bool(transform)

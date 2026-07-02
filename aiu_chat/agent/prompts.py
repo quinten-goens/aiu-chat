@@ -219,6 +219,8 @@ additional time defined?" -> {"routes": ["dataapp", "data", "concept"]}
 {"routes": ["dataapp"]} (a daily series over a date range -> the Data App)
 - "Show the weekly ATFM delay per flight over March 2026" -> \
 {"routes": ["dataapp"]} (a daily-based series, aggregated + divided per flight)
+- "Compare France and Germany daily traffic from 1 Feb to 1 Mar 2026 on one \
+chart" -> {"routes": ["dataapp"]} (a multi-entity daily comparison series)
 - "How many flights did Heathrow have in 2024?" -> {"routes": ["data"]} \
 (a plain annual total for one airport -> the local datasets, NOT dataapp)
 - "Which airport had the most total flight movements in 2024?" -> \
@@ -377,8 +379,11 @@ QUERY_KIND — pick exactly one:
 daily traffic from 1 January 2026 to 1 May 2026", "weekly ATFM delay over \
 March", "monthly average flights this year", "delay per flight each day in \
 April". Set "start" and "end" to the period bounds (YYYY-MM-DD; resolve "over \
-March 2026" -> start 2026-03-01, end 2026-03-31). Put the single entity in \
-"entities" (or leave empty for the whole network). "metrics" MUST list EVERY \
+March 2026" -> start 2026-03-01, end 2026-03-31). Put the entity in "entities" \
+(or leave empty for the whole network); to COMPARE several entities' series on \
+one chart ("compare France and Germany daily traffic", "daily traffic for EGLL, \
+LFPG and EHAM this year") list EVERY named entity in "entities". "metrics" MUST \
+list EVERY \
 metric the answer needs: just ["traffic"] for daily traffic; ["delay", \
 "traffic"] for "delay per flight" (minutes AND flights, to divide); ["delay"] \
 for daily delay minutes. "transform" describes the manipulation in plain \
@@ -516,6 +521,14 @@ listed with its columns. Typical columns: `date` (YYYY-MM-DD text) and `value` \
 (the metric's daily figure). Different metrics are in DIFFERENT tables (e.g. \
 `delay_ts` has daily delay minutes, `traffic_ts` has daily flight counts).
 
+If a table has an `entity` column, it holds SEVERAL entities' series stacked \
+(one row per day PER entity, e.g. France and Germany). You MUST keep them apart: \
+add `entity` to every GROUP BY, join tables ON date AND entity, and PARTITION BY \
+entity in window functions. Keep `entity` in the output so each entity stays a \
+separate series that can be charted side by side. NEVER sum or average across \
+different entities into one number unless the question explicitly asks for a \
+combined total.
+
 Write the SELECT that produces the requested result. Examples of the WIDE range \
 of manipulations you may need (not exhaustive — do whatever the question needs):
 - Resample: weekly/monthly/quarterly totals or averages \
@@ -561,6 +574,9 @@ Quote figures from the rows.
 - Summarise the series usefully: the period covered, the overall trend or total/ \
 average as relevant, and any notable high/low — but do NOT list every row (the \
 full data is shown to the user as a table and chart).
+- If the rows carry an `entity` column, they COMPARE several entities — describe \
+each entity's series (and how they compare, e.g. which is consistently higher) \
+rather than blending them into one figure.
 - If the period was capped (you are told so), say the range was shortened.
 - State that figures are daily Data App data through the latest available day.
 """

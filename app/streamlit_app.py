@@ -206,12 +206,12 @@ ADVANCED_SUGGESTIONS = [
     (
         "📈 Daily series",
         [
+            ("Compare France and Germany daily traffic from 1 February 2026 to 1 March 2026 on one chart",
+             "**France vs Germany** daily traffic · **one chart**"),
             ("Give me the daily traffic on the network from 1 January 2026 to 1 May 2026 as a chart",
              "**Daily network traffic** · **1 Jan → 1 May 2026** · chart"),
             ("Plot France's daily ATFM delay from 1 February 2026 to 1 April 2026",
              "**France daily ATFM delay** · **Feb → Apr 2026**"),
-            ("Show Heathrow's daily arrival punctuality over March 2026",
-             "**Heathrow daily punctuality** · **March 2026**"),
         ],
     ),
     (
