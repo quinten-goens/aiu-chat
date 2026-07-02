@@ -517,13 +517,15 @@ def _admin():
 # ("Aviation Intelligence + Chat" / "About"), not derived from filenames.
 _pages = [
     st.Page(main, title="Aviation Intelligence + Chat", icon="✈️", default=True),
-    st.Page(_about, title="About", icon="ℹ️"),
 ]
 
-# Viewer: shown as a nav page whenever a viewer password is configured. The page
-# itself is password-gated (a separate password from the main app login).
+# Admin Panel: sits between Chat and About, shown whenever a viewer password is
+# configured. The page itself is password-gated (a separate password from the
+# main app login).
 if config.admin_viewer_configured():
-    _pages.append(st.Page(_admin, title="Viewer", icon="🗂️"))
+    _pages.append(st.Page(_admin, title="Admin Panel", icon="🗂️"))
+
+_pages.append(st.Page(_about, title="About", icon="ℹ️"))
 
 _nav = st.navigation(_pages)
 _nav.run()
