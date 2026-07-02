@@ -154,18 +154,24 @@ what's happening on the network: weather/CB activity, AERODROME situations \
 (ATC capacity/sector/ACC issues). Use for "what's the situation at <airport>", \
 "any airspace/capacity issues", "what's happening on the network", "tactical \
 update", as well as network weather.
-- "dataapp": the EUROCONTROL Data App — DAILY-granularity figures (a specific \
-calendar DAY, this week, a month, or year-to-date) of traffic/flights, ATFM \
-delay, CO2, or punctuality. Use it for THREE kinds of question: (a) a figure for \
-a named country/airport/ANSP/airline; (b) a WHOLE-NETWORK figure ("how many \
-flights on the network on <date>", "network ATFM per flight"); (c) a "which one \
-is highest/lowest/busiest/most/least" RANKING — which airport had the highest \
-punctuality, which country generated the most ATFM delay, the busiest airport \
-pair for an airline, the busiest airline in a country, the busiest destination \
-from an airport. It has data for SPECIFIC PAST DATES too (e.g. "on 10 March \
-2025"), so a question naming an exact day/quarter/year AND asking a \
-per-day-style figure or a which-is-highest ranking of airports/countries/pairs/ \
-airlines goes here — NOT to "data". (Source is D-1, not real-time.)
+- "dataapp": the EUROCONTROL Data App — DAILY-granularity figures of traffic/ \
+flights, ATFM delay, CO2, or punctuality. Use it ONLY when the question needs \
+something the local historical datasets ("data") can't give: \
+  (a) a figure tied to a SPECIFIC CALENDAR DAY or a very recent window \
+(a named day like "on 10 March 2025", "today", "yesterday", "this week"); \
+  (b) a WHOLE-NETWORK daily figure ("how many flights on the network on \
+<date>", "network ATFM per flight"); \
+  (c) a "which one is highest/lowest/busiest/most/least" RANKING that the local \
+tables do NOT hold — specifically airport-PAIRS/ROUTES ("busiest airport pair \
+for an airline", "busiest destination from <airport>"), or a ranking scoped \
+INSIDE one entity ("busiest airline in <country>"), or a daily punctuality \
+ranking on a named day. \
+  (Source is D-1, not real-time.) \
+  Do NOT use "dataapp" merely because a year is mentioned. A plain historical \
+total or a simple biggest/smallest over a full past YEAR for a single \
+state/airport/ANSP ("how many flights did Heathrow have in 2024", "which \
+AIRPORT had the most movements in 2024", "which STATE emitted most CO2 in \
+2024") is answered by the local datasets -> "data", NOT dataapp.
 - "nm_live": the REAL-TIME network state RIGHT NOW — how many aircraft are \
 airborne now, current total network delay, the most-delayed ACCs right now, or \
 which ATFM regulations are active now.
@@ -174,9 +180,13 @@ all (e.g. general knowledge, weather forecasts, other domains).
 
 Guidance:
 - "right now / currently / at the moment / airborne now / active regulations" -> \
-nm_live. "today / yesterday / this week / year-to-date" for a named country/ \
-airport/ANSP/airline -> dataapp. "in 2024 / by year / by month / historically" \
--> data.
+nm_live. "today / yesterday / this week / on <a specific date>" for a named \
+country/airport/ANSP/airline -> dataapp. "in 2024 / by year / by month / \
+historically" for a plain total or a single-dimension biggest/smallest -> data. \
+A YEAR alone does NOT mean dataapp — only route a year-scoped question to \
+dataapp when it needs an airport-PAIR/route ranking or a ranking scoped inside \
+one entity (busiest pair for an airline, busiest airline in a country) that the \
+local tables can't produce.
 - A value computed FROM the local datasets (earliest/latest year, counts, min/ \
 max, coverage) is "data", even if it mentions "the data" or a dataset name.
 - IMPORTANT: "none" is ONLY for topics outside air navigation performance. A \
@@ -201,6 +211,11 @@ trend?" -> {"routes": ["nm_live", "data"]}
 additional time defined?" -> {"routes": ["dataapp", "data", "concept"]}
 - "Which state had the most CO2 emissions across 2024?" -> {"routes": ["data"]} \
 (CO2 has no Data App ranking; the historical datasets answer this)
+- "How many flights did Heathrow have in 2024?" -> {"routes": ["data"]} \
+(a plain annual total for one airport -> the local datasets, NOT dataapp)
+- "Which airport had the most total flight movements in 2024?" -> \
+{"routes": ["data"]} (a single-dimension biggest-over-a-year -> the local \
+datasets; dataapp is for pair/route rankings and specific-day figures)
 """
 
 ROUTER_USER_TEMPLATE = """Question: {question}\n\nOutput the routes JSON."""
