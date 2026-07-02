@@ -54,10 +54,13 @@ time?").
 Operational updates (weather/CB advisories, tactical updates) fetched live from a
 PocketBase service per question and interpreted for you.
 
-**4. EUROCONTROL Data App API — daily (D-1)**
-The latest *daily* figures (yesterday / latest available day, this week,
-year-to-date) for traffic, ATFM delay, CO2, and punctuality, for a specific
-country, airport, ANSP, or airline. Updated once a day — **not real-time**.
+**4. EUROCONTROL Data App API — daily figures**
+Daily-granularity traffic, ATFM delay, CO2, and punctuality — for **a specific
+day** (including past dates, e.g. 10 March 2026), a period (this week /
+month / year-to-date), **the whole network**, a named country/airport/ANSP/
+airline, or a **ranking** ("which airport had the highest punctuality", "busiest
+airport pair for an airline"). Updated once a day — **not real-time**; the latest
+available day is D-1 (yesterday).
 
 **5. EUROCONTROL Network Manager (NM) — real-time**
 The genuinely live network picture behind
@@ -80,7 +83,7 @@ Every question is **routed** to one of these paths:
 | **data** | historical numbers (by year/month, rankings, totals) | the model writes **SQL**, validated (read-only, sandboxed) and run against the bundled DuckDB; the model narrates the executed rows |
 | **concept** | what a term/metric means or how it's computed | vector search over docs + PDFs, plus an exact acronym lookup; answered only from the retrieved text |
 | **nop** | the network operational situation in NOP messages | fetches recent NOP messages and interprets them |
-| **dataapp** | latest *daily* (D-1) traffic, delay, CO2, punctuality for a country/airport/ANSP/airline | a deterministic resolver does the Data App API's multi-step lookup; the model picks only the metric + entity |
+| **dataapp** | daily traffic/delay/CO2/punctuality — a specific day (incl. past dates), the whole network, an entity, or a "which is highest" ranking | a deterministic resolver does the Data App API's sync→metric/ranking lookup; the model picks only the query shape, metric, date & entity |
 | **nm_live** | the *real-time* network state right now | fetches the live NM snapshot (airborne, delay, regulations) |
 | **both** | a number *and* an explanation | combines the data and concept paths |
 | **none** | outside ANS performance | declines politely |
@@ -130,8 +133,8 @@ the **as-of date** of the data.
 - **Charts:** [Plotly](https://plotly.com/python/) rendered from a validated
   chart spec the model emits (it never writes plotting code).
 - **UI:** [Streamlit](https://streamlit.io).
-- **Live sources:** PocketBase (NOP), the EUROCONTROL Data App REST API (D-1),
-  and the EUROCONTROL Network Manager live API.
+- **Live sources:** PocketBase (NOP), the EUROCONTROL Data App REST API (daily,
+  latest day is D-1), and the EUROCONTROL Network Manager live API.
 
 Built and tested in vertical slices, with a gold evaluation set that scores
 answers and routing against known-correct cases.

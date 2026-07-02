@@ -119,7 +119,7 @@ def _render_turn(t: dict, i: int) -> None:
 _ROUTE_LABELS = {
     "data": "📊 Historical data", "concept": "📖 Concept / methodology",
     "both": "📊+📖 Data + concept", "nop": "📡 NOP messages",
-    "dataapp": "📅 Latest daily (D-1)", "nm_live": "🟢 Real-time network",
+    "dataapp": "📅 EUROCONTROL Data App", "nm_live": "🟢 Real-time network",
     "catalog": "🗂️ Data catalogue", "none": "🚫 Out of scope",
     "unknown": "❔ Unknown",
 }

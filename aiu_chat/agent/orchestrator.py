@@ -177,7 +177,7 @@ _ROUTE_STATUS = {
     "both": "Querying the data and reference docs…",
     "concept": "Searching the reference docs & PDFs…",
     "nop": "Fetching NOP messages…",
-    "dataapp": "Looking up the latest daily figures…",
+    "dataapp": "Querying the EUROCONTROL Data App…",
     "nm_live": "Fetching the live network snapshot…",
 }
 
@@ -187,7 +187,7 @@ _ROUTE_WHY = {
     "both": "needs a figure and an explanation",
     "concept": "a definition / methodology question",
     "nop": "the operational situation in NOP messages",
-    "dataapp": "latest daily (D-1) figures for an entity",
+    "dataapp": "daily Data App figures — a specific day, the network, or a ranking",
     "nm_live": "the real-time network state",
     "none": "outside air navigation performance",
 }
@@ -304,7 +304,7 @@ def answer(
         elif da.network is not None:
             detail = f"Network **{da.network.metric}** as of {da.network.sync_date}"
         elif da.result is not None:
-            detail = f"Resolved entity: **{da.result.entity.name}** (Data App, D-1)"
+            detail = f"Resolved entity: **{da.result.entity.name}** (Data App, {da.result.sync_date})"
         else:
             detail = None
         logger.info("  dataapp ok=%s | %s", da.ok, detail)
@@ -390,7 +390,7 @@ def _combine(turn: Turn, *, client: OllamaClient | None = None, status=None) -> 
     if turn.data is not None:
         labelled.append(("Historical data", turn.data.answer))
     if turn.dataapp is not None:
-        labelled.append(("Latest daily (D-1)", turn.dataapp.answer))
+        labelled.append(("EUROCONTROL Data App (daily)", turn.dataapp.answer))
     if turn.nm_live is not None:
         labelled.append(("Live network", turn.nm_live.answer))
     if turn.nop is not None:

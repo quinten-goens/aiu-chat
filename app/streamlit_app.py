@@ -153,14 +153,14 @@ SUGGESTIONS = [
         ],
     ),
     (
-        "📅 Latest daily",
+        "📅 Data App (daily)",
         [
-            ("How many flights did France have on the latest day?",
-             "How many **flights** did **France** have on the latest day?"),
-            ("What is the latest daily ATFM delay for DSNA?",
-             "Latest daily **ATFM delay** for **DSNA**?"),
-            ("Latest punctuality at Heathrow?",
-             "Latest **punctuality** at **Heathrow**?"),
+            ("How many flights were there on the network on the 10th of March 2026?",
+             "How many **flights** on the **network** on **10 March 2026**?"),
+            ("Which airport had the highest arrival punctuality on 10 March 2025?",
+             "Which **airport** had the **highest punctuality** on **10 March 2025**?"),
+            ("What was the busiest aircraft operator in Estonia in 2025?",
+             "Busiest **airline** in **Estonia** in **2025**?"),
         ],
     ),
     (
@@ -199,8 +199,10 @@ ROUTE_INFO = {
              "Needed both a figure and an explanation → combined the data and concept paths."),
     "nop": ("📡 NOP messages",
             "Recognised an operational/NOP question → fetched and interpreted recent NOP messages."),
-    "dataapp": ("📅 Latest daily (D-1)",
-                "Recognised a request for recent daily figures → queried the EUROCONTROL Data App API (D-1)."),
+    "dataapp": ("📅 EUROCONTROL Data App",
+                "Recognised a daily-granularity question (a specific day, the whole "
+                "network, or a which-is-highest ranking) → queried the EUROCONTROL "
+                "Data App API. The latest day is D-1 (yesterday)."),
     "nm_live": ("🟢 Real-time network",
                 "Recognised a 'right now' question → fetched the live Network Manager snapshot."),
     "catalog": ("🗂️ Data catalogue",
@@ -277,14 +279,22 @@ def _render_turn(turn, idx):
                 st.text(m.text[:1500])
         st.markdown(_chip("📡 NOP · live", "src"), unsafe_allow_html=True)
 
-    # Data App figures: D-1 (latest daily), not real-time — one chip per entity
-    # looked up (fan-out shows several).
-    if turn.dataapp is not None and turn.dataapp.results:
-        chips = " ".join(
-            _chip(f"📅 Data App · {r.entity.name} · {r.sync_date} (D-1)", "src")
-            for r in turn.dataapp.results
-        )
-        st.markdown(chips, unsafe_allow_html=True)
+    # Data App figures: daily-granularity for a specific day / the whole network /
+    # a ranking. One chip per source. The date is the reported day — only the
+    # LATEST available day is "D-1"; a specific past date is just that date.
+    if turn.dataapp is not None:
+        da = turn.dataapp
+        chips = []
+        for r in da.results:                       # entity path (fan-out)
+            chips.append(_chip(f"📅 Data App · {r.entity.name} · {r.sync_date}", "src"))
+        if da.network is not None:                 # whole-network figure
+            chips.append(_chip(f"📅 Data App · Network · {da.network.sync_date}", "src"))
+        if da.ranking is not None:                 # top/bottom-N ranking
+            scope = da.ranking.scope
+            label = f"{da.ranking.category}" + (f" · {scope}" if scope and scope != "network" else "")
+            chips.append(_chip(f"📅 Data App · {label} · {da.ranking.sync_date}", "src"))
+        if chips:
+            st.markdown(" ".join(chips), unsafe_allow_html=True)
 
     # NM live snapshot: genuinely real-time.
     if turn.nm_live is not None and turn.nm_live.snapshot is not None:
