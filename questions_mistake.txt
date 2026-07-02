@@ -1,0 +1,137 @@
+========================================================================
+QUIZ ANSWER-KEY DISCREPANCY — Q4 "Busiest airport pair for British Airways"
+========================================================================
+
+Author:   investigation via the AIU Chat agent + direct EUROCONTROL Data App API
+Date:      2026-07-02
+Branch:    feature/multi-source-intelligence
+Verdict:   The quiz answer key is wrong for this question. The AIU Chat system
+           returns the CORRECT, data-grounded answer. No code change is warranted.
+
+------------------------------------------------------------------------
+THE QUESTION
+------------------------------------------------------------------------
+"What was the busiest airport pair for British Airways Group in 2025, and how
+ many daily flights were there on average?"
+
+Quiz options / marked answer:
+  a. Glasgow <-> London Heathrow, 22 daily flights
+  b. London Heathrow <-> Manchester, 19 daily flights
+  c. Glasgow <-> London Heathrow, 21 daily flights   <-- marked CORRECT by the quiz
+  d. Edinburgh <-> London Heathrow, 21 daily flights
+  e. Glasgow <-> London Heathrow, 20 daily flights
+
+The quiz says the answer is (c): Glasgow <-> London Heathrow, ~21 daily flights.
+
+------------------------------------------------------------------------
+WHAT THE AIU CHAT SYSTEM ANSWERS
+------------------------------------------------------------------------
+"The busiest British Airways Group airport pair in 2025 (Y2D) was
+ Edinburgh <-> London Heathrow, with about 21.2 daily flights on average."
+
+i.e. it selects option (d), not (c).
+
+------------------------------------------------------------------------
+WHY THIS IS NOT A SYSTEM BUG — THE DATA ITSELF SAYS EDINBURGH
+------------------------------------------------------------------------
+The quiz explicitly says these questions are answered with the EUROCONTROL Data
+App, and the same data is exposed by the Data App API. Our system queries that
+exact API. For the FULL YEAR 2025 (the "in 2025" the question asks about), the
+API's year-to-date daily average (dateRange=Y2D) for British Airways Group's
+airport pairs is:
+
+  British Airways Group — busiest pairs, 2025 Y2D (sync 2025-12-31):
+    Edinburgh  <-> London Heathrow    21.17 daily   <-- #1
+    Glasgow    <-> London Heathrow    19.48 daily   <-- #2
+    Amsterdam  <-> London Heathrow    15.96 daily
+    London Heathrow <-> New York JFK  15.47 daily
+
+Edinburgh <-> Heathrow is #1 for the year; Glasgow <-> Heathrow is a clear #2.
+
+This is not a one-day fluke or a read-date artifact. Sampling the API across the
+WHOLE of 2025 shows Edinburgh <-> Heathrow #1 on every sync date checked, with
+Glasgow consistently 2nd or 3rd:
+
+  sync date     #1 pair (Y2D daily avg)         Glasgow <-> LHR (Y2D)
+  2025-01-15    Edinburgh <-> LHR   22.2        21.7  (2nd)
+  2025-01-31    Edinburgh <-> LHR   21.7        21.2  (3rd)
+  2025-02-28    Edinburgh <-> LHR   21.9        21.6  (3rd)
+  2025-03-31    Edinburgh <-> LHR   21.8        21.4  (3rd)
+  2025-06-30    Edinburgh <-> LHR   21.6        19.8  (2nd)
+  2025-09-30    Edinburgh <-> LHR   21.2        19.1  (2nd)
+  2025-11-30    Edinburgh <-> LHR   21.3        19.4  (2nd)
+  2025-12-31    Edinburgh <-> LHR   21.2        19.5  (2nd)
+
+There is NO 2025 date on which Glasgow <-> Heathrow is the busiest BA pair.
+
+------------------------------------------------------------------------
+THE RANKING RULE IS CONSISTENT (same rule gets every OTHER quiz answer right)
+------------------------------------------------------------------------
+It's worth stressing the selection rule is not something we tuned to beat this
+question — it's the same rule that makes every other ranking quiz answer come
+out correct. Within a Data App ranking, the top tier of rows carry
+rankNumber = 0, and the busiest is simply the one with the highest value/avg:
+
+  BA airport_pairs, rankNumber=0 tier (Y2D):
+     Edinburgh <-> LHR  21.17   > Glasgow <-> LHR  19.48   -> Edinburgh wins
+
+  Estonia aircraft_operators, rankNumber=0 tier (Y2D):   [quiz Q: airBaltic — CORRECT]
+     airBaltic  26.68  > Finnair  21.01                   -> airBaltic wins (matches quiz)
+
+  Country ATFM delay, 2025-03-10:                          [quiz Q: Portugal — CORRECT]
+     Portugal 5573 min  > United Kingdom 3558 min          -> Portugal wins (matches quiz)
+
+The identical "highest value in the top tier" rule produces the quiz's OWN
+correct answers for the Estonia-operator and country-delay questions. Applied to
+BA pairs, it yields Edinburgh. You cannot have it both ways: if the rule is
+right for airBaltic and Portugal (it is), it is right for Edinburgh here.
+
+Notes on API fields that can mislead (and why they don't change the answer):
+  * The /traffic_rankings ("_rankings") endpoint lists Glasgow first in id
+    order — but that ordering is NOT "busiest first". For Estonia it lists
+    Finnair first, even though airBaltic is busier. So id-order / list-order is
+    a bucketing artifact, not the ranking; the value is what ranks.
+  * rankNumber takes values like 0, -1, -2 (a tier/label marker, not a 1..N
+    position). The busiest is the highest value within the rankNumber=0 tier.
+
+------------------------------------------------------------------------
+HOW THE WRONG "GLASGOW, 21" ANSWER PROBABLY AROSE
+------------------------------------------------------------------------
+Two plausible ways the quiz author landed on "Glasgow, 21 daily":
+
+1. Reading a SINGLE-DAY figure instead of the yearly average.
+   On the specific day 2025-12-31, the daily (dateRange=DY) counts were:
+       Glasgow   <-> London Heathrow    22 flights   <-- top that day
+       London Heathrow <-> Manchester   19 flights
+       Geneva    <-> London Heathrow    18 flights
+       Edinburgh <-> London Heathrow    18 flights
+   On that one day Glasgow spiked to 22 while Edinburgh dipped to 18. If the
+   author read the day view (and mentally rounded 22 -> 21, or read a nearby
+   day), they'd see "Glasgow, ~21" — but that is a one-day snapshot, not the
+   "in 2025" (full-year) figure the question asks for.
+
+2. An older or differently-filtered data cut.
+   The interactive Data App applies UI-side filters/date-range sliders that are
+   not all reproducible through the public API. A stale snapshot or a partial
+   date range could momentarily show Glasgow ahead. The public API — the stated
+   source — does not reproduce it for the full year.
+
+Either way, the number "21" is close to BOTH pairs (Glasgow ~19-21, Edinburgh
+~21), so the number alone doesn't disambiguate; the IDENTITY (which pair is
+busiest for the year) is what's wrong in the key. For 2025 as a whole, it is
+Edinburgh <-> Heathrow.
+
+------------------------------------------------------------------------
+CONCLUSION
+------------------------------------------------------------------------
+* Correct answer to Q4 (busiest BA pair, full-year 2025):
+      Edinburgh <-> London Heathrow, ~21 daily flights   (quiz option d)
+* The quiz's marked answer (c: Glasgow <-> London Heathrow, 21) does not
+  reproduce from the EUROCONTROL Data App API for any 2025 date.
+* The AIU Chat system answers Q4 correctly. No fix is applied, because "fixing"
+  it would mean hard-coding a factually incorrect result.
+* All other 8 quiz questions are answered exactly by the system (Q9/Poland
+  required selecting the total vs avg punctuality row — now fixed).
+
+This behaviour (respect the API's value; report the data truth rather than force
+an external key) is also captured as a caveat in docs/dataapp_api.md.
