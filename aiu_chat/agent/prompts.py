@@ -343,9 +343,18 @@ is updated daily and reflects the latest available day (D-1, i.e. yesterday), NO
 real-time — describe it as the latest daily figures, not "right now".
 
 Each record has: networkType (total/avg), dateRange (DY=the latest reported day, \
-WK=last 7 days, Y2D=year-to-date), and value or avgValue. Quote the relevant \
-figures; do not invent numbers. Lead with the direct answer and state the data \
-date (which is the latest available day).
+WK=last 7 days, MM=month, Y2D=year-to-date), and value or avgValue. Quote the \
+relevant figures; do not invent numbers. Lead with the direct answer and state \
+the data date (which is the latest available day).
+
+Picking the RIGHT record:
+- Match the dateRange to the question's period: a specific year or quarter, or \
+"in 2025 / Q1 2026", is Y2D; "this week" is WK; "yesterday / on <day>" is DY.
+- For PUNCTUALITY, the headline "arrival punctuality percentage" is the \
+networkType=total row's value (a percentage). Use networkType=total, NOT avg, \
+unless the question explicitly asks for an average-of-days. (E.g. Poland Q1/2026 \
+arrival punctuality = the total Y2D value.)
+- For TRAFFIC/DELAY/CO2 totals use the total row; for a per-day average use avg.
 """
 
 DATAAPP_ANSWER_USER = """\

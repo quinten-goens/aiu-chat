@@ -47,6 +47,12 @@ To resolve a **named entity → id** first: `GET /countries?name=France` (or
 Rows carry `networkType` (`total`/`avg`), `dateRange` (`DY` day / `WK` 7-day /
 `MM` month / `Y2D` year-to-date), and `value` or `avgValue`.
 
+> **`total` vs `avg` matters.** For **punctuality**, the headline "arrival
+> punctuality %" is the `total` row's `value` — the `avg` row is a different
+> (average-of-days) figure. Verified: Poland Q1/2026 → `total` Y2D = 76.87 %
+> (≈ 77 %), whereas `avg` Y2D = 75.87 %. Quote `total` for a punctuality
+> percentage unless an average-of-days is explicitly asked.
+
 > **Verified:** flights on the network on **2026-03-10** = `DY total value` =
 > **24 864.0**.
 
@@ -103,6 +109,14 @@ first row is the highest and the last row is the lowest — no second call neede
 (`syncDate` ≈ `2025-12-31`) + `dateRange=Y2D` (`avgValue` = 2025 daily average).
 For "Q1/2026" use a sync ≈ `2026-03-31`. (The exact daily average a user sees
 depends on which day's sync they read — annual figures are vintage-sensitive.)
+
+> **Ranking stability caveat.** A Y2D ranking's *order* near the top can hinge on
+> tiny daily-average differences and the read-date. Example: British Airways'
+> busiest 2025 airport pair is **Edinburgh ⟷ Heathrow** (~21.2 Y2D) on **every**
+> 2025 sync date sampled — Glasgow ⟷ Heathrow is consistently 2nd–3rd (~19–21).
+> If an external answer key says "Glasgow", it does not reproduce from this API
+> for any 2025 date; report what the API actually returns rather than forcing a
+> match.
 
 ### 3. Per-entity figure (existing path, now date-aware)
 Resolve entity → its sync (optionally for a date) → `<metric>_networks`

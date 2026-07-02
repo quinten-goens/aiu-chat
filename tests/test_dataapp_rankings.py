@@ -298,6 +298,18 @@ def test_live_q1_2026_punctuality_extremes_are_ibiza_and_le_bourget():
     assert res.rows[-1]["name"] == "Paris Le Bourget"  # lowest
 
 
+@pytest.mark.live
+def test_live_poland_punctuality_pct_is_total_row_not_avg():
+    # The headline arrival-punctuality % is the total row (~77%), not avg (~76%).
+    res = _live_or_skip(d.fetch_metric, "punctuality", "country", "Poland",
+                        date="2026-03-31")
+    y2d_total = next((r for r in res.records
+                      if r.get("dateRange") == "Y2D" and r.get("networkType") == "total"), None)
+    assert y2d_total is not None
+    # Quiz answer 77%; the total Y2D value is ~76.87 (rounds to 77).
+    assert 76.0 <= y2d_total["value"] <= 78.0
+
+
 # --- live integration (real API; asserts the actual quiz numbers) ----------
 
 def _live_or_skip(fn, *args, **kwargs):
