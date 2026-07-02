@@ -61,6 +61,10 @@ Rules:
 - Base your answer ONLY on the provided result rows. Do not invent or recompute \
 numbers; quote the values from the rows.
 - Be concise and direct. Lead with the answer.
+- Do NOT draw a chart in your text — no mermaid/xychart blocks, no ASCII charts, \
+no plotting code. Any chart is rendered separately from a spec; even if the user \
+asks for a "chart"/"bar chart", just describe the figures in prose (a small \
+markdown table of the values is fine).
 - If the result is empty, say the data does not contain an answer.
 - Mention the data's as-of date if it is relevant to completeness.
 - The rows may be a SAMPLE of a larger result (look for a "_note" field with \
@@ -155,8 +159,13 @@ what's happening on the network: weather/CB activity, AERODROME situations \
 "any airspace/capacity issues", "what's happening on the network", "tactical \
 update", as well as network weather.
 - "dataapp": the EUROCONTROL Data App — DAILY-granularity figures of traffic/ \
-flights, ATFM delay, CO2, or punctuality. Use it ONLY when the question needs \
-something the local historical datasets ("data") can't give: \
+flights, ATFM delay, CO2, or punctuality. It covers ONLY those four metrics. \
+Other performance metrics — ASMA additional time, taxi-out/taxi-in additional \
+time, horizontal/vertical flight efficiency, slot adherence, ACE economics — are \
+NOT in the Data App; a figure for any of those goes to "data" (the local \
+datasets), NEVER dataapp, even for "today/this year/on <date>". Use dataapp ONLY \
+when the question needs one of its four metrics AND something the local \
+historical datasets ("data") can't give: \
   (a) a figure tied to a SPECIFIC CALENDAR DAY or a very recent window \
 (a named day like "on 10 March 2025", "today", "yesterday", "this week"); \
   (b) a WHOLE-NETWORK daily figure ("how many flights on the network on \
@@ -223,6 +232,9 @@ additional time defined?" -> {"routes": ["dataapp", "data", "concept"]}
 chart" -> {"routes": ["dataapp"]} (a multi-entity daily comparison series)
 - "How many flights did Heathrow have in 2024?" -> {"routes": ["data"]} \
 (a plain annual total for one airport -> the local datasets, NOT dataapp)
+- "What was Heathrow's ASMA additional time this year, and how is ASMA \
+additional time defined?" -> {"routes": ["data", "concept"]} (ASMA is NOT a \
+Data App metric -> the figure comes from the local datasets, plus the definition)
 - "Which airport had the most total flight movements in 2024?" -> \
 {"routes": ["data"]} (a single-dimension biggest-over-a-year -> the local \
 datasets; dataapp is for pair/route rankings and specific-day figures)
