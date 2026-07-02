@@ -15,6 +15,7 @@ All calls are GET, public, read-only. See docs/dataapp_api.md for the recipes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date as _date, timedelta
 
 import requests
 
@@ -80,6 +81,20 @@ class DataAppResult:
     sync_id: int
     sync_date: str
     records: list[dict]  # the metric value rows (networkType/dateRange/value/...)
+
+
+@dataclass
+class TimeseriesResult:
+    """A daily time series of one metric over a period, for one entity or the
+    network. `rows` is tidy: one dict per day, e.g.
+    [{"date": "2026-01-01", "value": 24864.0, "avgValue": ...}, ...] sorted by
+    date. Ready to become a DataFrame for manipulation and charting."""
+    metric: str
+    entity: Entity
+    start: str              # YYYY-MM-DD (inclusive)
+    end: str                # YYYY-MM-DD (inclusive)
+    rows: list[dict] = field(default_factory=list)
+    truncated: bool = False  # True if the period was capped to MAX_PERIOD_DAYS
 
 
 @dataclass
@@ -218,6 +233,130 @@ def fetch_network(
     return DataAppResult(
         metric=metric, entity=net, sync_id=sync_id, sync_date=sync_date, records=records
     )
+
+
+def _clamp_period(start: str, end: str) -> tuple[str, str, bool]:
+    """Order start<=end and cap the span to config.MAX_PERIOD_DAYS.
+
+    Returns (start, end, truncated). Truncation trims the END forward from the
+    start, so the returned window begins where the user asked. Be a polite
+    scraper — an unbounded range would otherwise hammer the live API."""
+    s = _date.fromisoformat(start)
+    e = _date.fromisoformat(end)
+    if e < s:
+        s, e = e, s
+    truncated = False
+    max_days = max(1, config.MAX_PERIOD_DAYS)
+    if (e - s).days + 1 > max_days:
+        e = s + timedelta(days=max_days - 1)
+        truncated = True
+    return s.isoformat(), e.isoformat(), truncated
+
+
+def find_syncs_in_range(
+    session: requests.Session,
+    *,
+    start: str,
+    end: str,
+    entity: Entity | None = None,
+) -> list[tuple[int, str]]:
+    """All (sync_id, sync_date) in [start, end] for an entity (or the network).
+
+    ONE /syncs call using the syncDate range filter — not a per-day loop. Sorted
+    ascending by date; deduped to one sync per day (the API keys one sync per
+    entity per day)."""
+    if entity is not None:
+        _, sync_field, dataType = ENTITY_ENDPOINTS[entity.kind]
+        params: dict = {"dataType": dataType, sync_field: entity.id}
+    else:
+        params = {"dataType": NETWORK_DATATYPE}
+    params["syncDate[after]"] = start
+    params["syncDate[before]"] = end
+    params["order[syncDate]"] = "asc"
+    # A generous page size so a long window comes back in one call; the caller
+    # has already clamped the span to MAX_PERIOD_DAYS.
+    params["itemsPerPage"] = max(config.MAX_PERIOD_DAYS, 30) + 5
+
+    data = _get(session, "/syncs", params).get("data", [])
+    by_day: dict[str, int] = {}
+    for row in data:
+        d = (row.get("syncDate") or "")[:10]
+        if d and d not in by_day:
+            by_day[d] = row["id"]
+    return [(sid, d) for d, sid in sorted(by_day.items())]
+
+
+def fetch_timeseries(
+    metric: str,
+    *,
+    start: str,
+    end: str,
+    kind: str | None = None,
+    query: str | None = None,
+    session: requests.Session | None = None,
+) -> TimeseriesResult:
+    """A daily time series of `metric` over [start, end] for one entity or the
+    network.
+
+    One /syncs range call gets every daily sync in the window; then each sync's
+    DY (single-day) metric value is read. Returns tidy per-day rows ready to be
+    turned into a DataFrame, manipulated (resampled / divided) and charted.
+
+    `kind`+`query` name an entity (country/airport/ansp/aircraft_operator);
+    omit both for the whole network."""
+    if metric not in METRIC_ENDPOINTS:
+        raise DataAppError(f"Unknown metric: {metric}")
+    start, end, truncated = _clamp_period(start, end)
+
+    own = session is None
+    session = session or requests.Session()
+    try:
+        if kind and query:
+            entity = resolve_entity(kind, query, session)
+        else:
+            entity = Entity(kind="network", id=0, name="Network", code="")
+        ent_arg = entity if entity.kind != "network" else None
+        syncs = find_syncs_in_range(session, start=start, end=end, entity=ent_arg)
+        if not syncs:
+            raise DataAppError(
+                f"No {metric} syncs for {entity.name} between {start} and {end}.")
+
+        endpoint, _, prefix = METRIC_ENDPOINTS[metric]
+        rows: list[dict] = []
+        for sync_id, sync_date in syncs:
+            data = _get(
+                session, endpoint,
+                {f"{prefix}.sync.id": sync_id, "itemsPerPage": 30},
+            ).get("data", [])
+            # Prefer the single-day (DY) total row; fall back to the first row.
+            recs = [{k: v for k, v in r.items() if k != prefix} for r in data]
+            dy = _pick_day_record(recs)
+            if dy is None:
+                continue
+            rows.append({
+                "date": sync_date,
+                "value": dy.get("value"),
+                "avgValue": dy.get("avgValue"),
+            })
+    finally:
+        if own:
+            session.close()
+
+    rows.sort(key=lambda r: r["date"])
+    return TimeseriesResult(
+        metric=metric, entity=entity, start=start, end=end,
+        rows=rows, truncated=truncated,
+    )
+
+
+def _pick_day_record(records: list[dict]) -> dict | None:
+    """From a sync's metric rows, pick the single-DAY (DY) total row — the daily
+    figure. Falls back to any DY row, then the first row."""
+    dy = [r for r in records if r.get("dateRange") == "DY"]
+    if dy:
+        total = [r for r in dy if r.get("networkType") == "total"]
+        return total[0] if total else dy[0]
+    return records[0] if records else None
 
 
 def fetch_ranking(

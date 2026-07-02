@@ -157,10 +157,10 @@ SUGGESTIONS = [
         [
             ("How many flights were there on the network on the 10th of March 2026?",
              "How many **flights** on the **network** on **10 March 2026**?"),
-            ("How many flights were there on the network on 10 March 2026 and on 10 March 2025?",
-             "Flights on the **network** on **10 Mar 2026** *and* **10 Mar 2025**?"),
-            ("What was the busiest aircraft operator in Estonia in 2025?",
-             "Busiest **airline** in **Estonia** in **2025**?"),
+            ("Give me the daily traffic on the network from 1 January 2026 to 1 May 2026",
+             "**Daily traffic** on the network **1 Jan → 1 May 2026**"),
+            ("Show the weekly ATFM delay per flight over March 2026",
+             "**Weekly ATFM delay per flight** over **March 2026**"),
         ],
     ),
     (
@@ -253,11 +253,26 @@ def _render_evidence(turn, key):
         st.markdown(_chip("📡 NOP · live", "src"), unsafe_allow_html=True)
 
     # Data App figures: daily-granularity for a specific day / the whole network /
-    # a ranking. One chip per source. The date is the reported day — only the
-    # LATEST available day is "D-1"; a specific past date is just that date.
+    # a ranking / a PERIOD series. One chip per source. The date is the reported
+    # day — only the LATEST available day is "D-1"; a specific past date is that date.
     if turn.dataapp is not None:
         da = turn.dataapp
+        # A period time series: chart (if valid) + auditable table + transform SQL.
+        ts = getattr(da, "timeseries", None)
+        if ts is not None and ts.dataframe is not None and not ts.dataframe.empty:
+            df = ts.dataframe
+            fig = make_chart(ts.chart_spec, df)
+            if fig is not None:
+                st.plotly_chart(fig, use_container_width=True, key=f"ts_chart_{key}")
+            st.dataframe(df, use_container_width=True, hide_index=True, key=f"ts_df_{key}")
+            if ts.truncated:
+                st.caption("The date range was capped to stay within limits.")
+            if ts.transform_sql:
+                with st.expander("Show data manipulation (SQL)"):
+                    st.code(ts.transform_sql, language="sql")
         chips = []
+        if ts is not None:
+            chips.append(_chip(f"📅 Data App · {ts.metric_line} · {ts.start}→{ts.end}", "src"))
         for r in da.results:                       # entity path (fan-out)
             chips.append(_chip(f"📅 Data App · {r.entity.name} · {r.sync_date}", "src"))
         if da.network is not None:                 # whole-network figure

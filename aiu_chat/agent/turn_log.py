@@ -123,6 +123,20 @@ def _evidence(turn) -> dict:
         out["row_count"] = int(getattr(result, "row_count", 0) or 0)
         out["truncated"] = bool(getattr(result, "truncated", False))
         out["result_table"] = _dataframe_records(df)
+
+    # A Data App period time series carries its own frame + transform SQL + chart
+    # spec. Log them under the same keys the viewer renders (sql/result_table/
+    # chart_spec) so a series is as auditable as a data-path answer.
+    dataapp = getattr(turn, "dataapp", None)
+    ts = getattr(dataapp, "timeseries", None) if dataapp is not None else None
+    ts_df = getattr(ts, "dataframe", None) if ts is not None else None
+    if ts is not None and ts_df is not None and not ts_df.empty:
+        out.setdefault("sql", getattr(ts, "transform_sql", None) or "")
+        out.setdefault("chart_spec", _json_safe(getattr(ts, "chart_spec", None)))
+        out["result_table"] = _dataframe_records(ts_df)
+        out["row_count"] = int(len(ts_df))
+        out["truncated"] = bool(getattr(ts, "truncated", False))
+
     live = _live_payload(turn)
     if live:
         out["live_payload"] = live

@@ -167,6 +167,20 @@ DECOMPOSE = os.getenv("AIU_DECOMPOSE", "true").lower() in ("1", "true", "yes")
 # Cap on how many sub-questions one question may split into (bounds latency/cost).
 MAX_SUBQUESTIONS = int(os.getenv("AIU_MAX_SUBQUESTIONS", "4"))
 
+# --- Data App time-series over a period (feature #6) -----------------------
+# When true, a question asking for a RANGE of daily figures ("daily traffic from
+# 1 Jan 2026 to 1 May 2026", "delay per flight each week over March") fetches the
+# whole period from the Data App API as a tidy daily frame (one /syncs range
+# call + per-day metric reads), which can then be MANIPULATED (resampled to
+# weekly/monthly, divided into per-flight ratios, etc.) and VISUALISED. Off ->
+# only single-day / network / ranking Data App shapes (prior behaviour).
+DATAAPP_TIMESERIES = os.getenv("AIU_DATAAPP_TIMESERIES", "true").lower() in ("1", "true", "yes")
+# Hard cap on the number of days a single period may span, so a fat-finger
+# request ("daily traffic for the last 10 years") can't hammer the live API.
+# One /syncs call gets all sync ids in the window; this bounds the per-day
+# metric reads that follow. Be a polite scraper (see CLAUDE.md).
+MAX_PERIOD_DAYS = int(os.getenv("AIU_MAX_PERIOD_DAYS", "370"))
+
 # --- Entity / knowledge layer ----------------------------------------------
 # When true, the SQL prompt is enriched with resolved canonical entities (from
 # data/entities.json) so generated SQL filters on the right column/literal

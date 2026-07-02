@@ -108,11 +108,19 @@ def validate_sql(sql: str, catalog: Catalog | None = None,
                 f"Disallowed statement element: {type(node).__name__}."
             )
 
-    # Reject forbidden functions (filesystem access, install/load).
+    # Reject forbidden functions (filesystem access, install/load). Some of these
+    # (read_parquet/read_csv/…) parse into DEDICATED sqlglot node types whose
+    # `.name` is empty — so also match on `sql_name()` (the canonical function
+    # name, e.g. "READ_PARQUET") to close that gap.
     for func in stmt.find_all(exp.Anonymous, exp.Func):
         name = (func.name or "").lower()
-        if name in _FORBIDDEN_FUNCS:
-            raise UnsafeSQLError(f"Disallowed function: {name}().")
+        sql_name = ""
+        try:
+            sql_name = (func.sql_name() or "").lower()
+        except Exception:
+            pass
+        if name in _FORBIDDEN_FUNCS or sql_name in _FORBIDDEN_FUNCS:
+            raise UnsafeSQLError(f"Disallowed function: {name or sql_name}().")
 
     # Restrict table references to known tables (catalog by default, or an
     # explicit override set for the aggregation executor). CTE aliases are

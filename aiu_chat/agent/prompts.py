@@ -165,7 +165,11 @@ something the local historical datasets ("data") can't give: \
 tables do NOT hold — specifically airport-PAIRS/ROUTES ("busiest airport pair \
 for an airline", "busiest destination from <airport>"), or a ranking scoped \
 INSIDE one entity ("busiest airline in <country>"), or a daily punctuality \
-ranking on a named day. \
+ranking on a named day; \
+  (d) a DAILY SERIES over an explicit date RANGE / period ("give me the daily \
+traffic from 1 January 2026 to 1 May 2026", "daily ATFM delay per flight over \
+March 2026", "weekly flights between 1 Feb and 30 Apr") — the Data App has \
+per-DAY granularity, which the bundled monthly datasets do not. \
   (Source is D-1, not real-time.) \
   Do NOT use "dataapp" merely because a year is mentioned. A plain historical \
 total or a simple biggest/smallest over a full past YEAR for a single \
@@ -211,6 +215,10 @@ trend?" -> {"routes": ["nm_live", "data"]}
 additional time defined?" -> {"routes": ["dataapp", "data", "concept"]}
 - "Which state had the most CO2 emissions across 2024?" -> {"routes": ["data"]} \
 (CO2 has no Data App ranking; the historical datasets answer this)
+- "Give me the daily traffic from 1 January 2026 to 1 May 2026" -> \
+{"routes": ["dataapp"]} (a daily series over a date range -> the Data App)
+- "Show the weekly ATFM delay per flight over March 2026" -> \
+{"routes": ["dataapp"]} (a daily-based series, aggregated + divided per flight)
 - "How many flights did Heathrow have in 2024?" -> {"routes": ["data"]} \
 (a plain annual total for one airport -> the local datasets, NOT dataapp)
 - "Which airport had the most total flight movements in 2024?" -> \
@@ -299,6 +307,10 @@ question -> keep it whole.
 - A number plus an explanation of THAT SAME number/metric: "What was Heathrow's \
 ASMA additional time this year and what does it mean?" -> keep whole (one \
 subject, the parts reinforce each other).
+- A CONTINUOUS DATE RANGE / period series: "give me the daily traffic from 1 \
+January 2026 to 1 May 2026", "weekly ATFM delay per flight over March 2026" is \
+ONE question (a later step fetches the whole period and manipulates it) — do \
+NOT split it into one sub-question per day/week.
 
 Keep sub-questions in the order asked. Never invent a part the user didn't ask.
 """
@@ -337,10 +349,14 @@ DATAAPP_EXTRACT_SYSTEM = """\
 You translate a question into a EUROCONTROL Data App API request. Output ONLY a \
 JSON object, nothing else:
 {
-  "query_kind": "entity" | "network" | "ranking",
+  "query_kind": "entity" | "network" | "ranking" | "timeseries",
   "metric": "traffic" | "delay" | "co2" | "punctuality",
   "date": "YYYY-MM-DD" | null,
   "period": "DY" | "WK" | "MM" | "Y2D",
+  "start": "YYYY-MM-DD" | null,
+  "end": "YYYY-MM-DD" | null,
+  "metrics": ["traffic"|"delay"|"co2"|"punctuality", ...],
+  "transform": "<plain-English description of any aggregation/manipulation, or null>",
   "entities": [
     {"entity_kind": "country"|"airport"|"ansp"|"aircraft_operator",
      "entity": "<name or code, e.g. 'France', 'EGLL', 'DSNA'>"}
@@ -353,9 +369,22 @@ JSON object, nothing else:
 
 METRIC: "traffic" = number of flights; "delay" = ATFM delay (minutes); \
 "co2" = CO2 emissions; "punctuality" = on-time / arrival-punctuality performance. \
-ONE metric per request.
+ONE metric per request (except a "timeseries" may need several — see "metrics").
 
 QUERY_KIND — pick exactly one:
+- "timeseries": the question asks for a RANGE of daily figures over a PERIOD \
+(a start and an end), possibly aggregated or combined. Use for "give me the \
+daily traffic from 1 January 2026 to 1 May 2026", "weekly ATFM delay over \
+March", "monthly average flights this year", "delay per flight each day in \
+April". Set "start" and "end" to the period bounds (YYYY-MM-DD; resolve "over \
+March 2026" -> start 2026-03-01, end 2026-03-31). Put the single entity in \
+"entities" (or leave empty for the whole network). "metrics" MUST list EVERY \
+metric the answer needs: just ["traffic"] for daily traffic; ["delay", \
+"traffic"] for "delay per flight" (minutes AND flights, to divide); ["delay"] \
+for daily delay minutes. "transform" describes the manipulation in plain \
+English so a later step can do it: e.g. "weekly total", "monthly average", \
+"delay minutes divided by number of flights per day", "7-day rolling average", \
+or null for the raw daily series. Leave date/period/ranking_* null.
 - "network": a WHOLE-NETWORK figure, no specific stakeholder. Use for "how many \
 flights were there on the network", "network ATFM delay", "network-wide average". \
 Leave entities empty.
@@ -475,6 +504,74 @@ Ranking: {direction} {category} by {metric}, scope = {scope}, as of {sync_date} 
 Rows, best first (JSON): {rows}
 
 Write a short, grounded answer naming the top entry (or the tie)."""
+
+
+MANIPULATE_SQL_SYSTEM = """\
+You transform already-fetched daily figures into what the user asked for, by \
+writing ONE DuckDB SQL SELECT over the provided in-memory tables. The numbers \
+MUST come from executing your SQL — never do arithmetic in prose.
+
+You are given one or more daily-series tables (one row per day), each named and \
+listed with its columns. Typical columns: `date` (YYYY-MM-DD text) and `value` \
+(the metric's daily figure). Different metrics are in DIFFERENT tables (e.g. \
+`delay_ts` has daily delay minutes, `traffic_ts` has daily flight counts).
+
+Write the SELECT that produces the requested result. Examples of the WIDE range \
+of manipulations you may need (not exhaustive — do whatever the question needs):
+- Resample: weekly/monthly/quarterly totals or averages \
+(GROUP BY date_trunc('week', CAST(date AS DATE)) ...).
+- Ratios across metrics: "delay per flight" = SUM(delay minutes) / SUM(flights), \
+joining the two daily tables ON date (or aggregated per period).
+- Rolling/moving averages (window functions: AVG(value) OVER (ORDER BY date \
+ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)).
+- Unit conversions, cumulative running totals, day-over-day change, filtering.
+- If the user wants the RAW daily series unchanged, output exactly: \
+SELECT 'NO_TRANSFORM' AS note
+
+Rules:
+- Output ONLY a single SQL SELECT (a leading WITH is fine). No prose, no fences.
+- Use ONLY the listed table names and columns, plus the bundled historical \
+tables if (and only if) they are listed. Never invent names.
+- Keep a sortable time/label column in the output when the result is a series \
+(e.g. the period label as the first column) so it can be charted.
+- Do the arithmetic in SQL; never rely on numbers from outside the tables.
+"""
+
+MANIPULATE_SQL_USER = """\
+Question: {question}
+
+Daily-series tables (name: columns):
+{tables}
+
+Sample rows:
+{samples}
+{catalog}
+Write the transform SQL, or SELECT 'NO_TRANSFORM' AS note to keep the raw daily \
+series."""
+
+
+DATAAPP_TIMESERIES_SYSTEM = """\
+You answer a question about a PERIOD of EUROCONTROL Data App figures, given the \
+resulting rows (a daily series, or the aggregated/derived result of a transform) \
+as JSON. This data is daily (latest available day is D-1), NOT real-time.
+
+Rules:
+- Base your answer ONLY on the provided rows; do not invent or recompute numbers. \
+Quote figures from the rows.
+- Summarise the series usefully: the period covered, the overall trend or total/ \
+average as relevant, and any notable high/low — but do NOT list every row (the \
+full data is shown to the user as a table and chart).
+- If the period was capped (you are told so), say the range was shortened.
+- State that figures are daily Data App data through the latest available day.
+"""
+
+DATAAPP_TIMESERIES_USER = """\
+Question: {question}
+
+{metric_line} for {entity} from {start} to {end}{capped}.
+Result rows (JSON, may be a sample of a longer series): {rows}
+
+Write a short, grounded summary of the series/result."""
 
 
 NM_LIVE_SYSTEM = """\
@@ -666,6 +763,31 @@ def build_dataapp_ranking_messages(
         Message("user", DATAAPP_RANKING_USER.format(
             question=question, metric=metric, category=category, scope=scope,
             sync_date=sync_date, period=period, direction=direction, rows=rows_json)),
+    ]
+
+
+def build_manipulate_sql_messages(question, tables_desc, samples_json, catalog_note=""):
+    from aiu_chat.agent.llm import Message
+
+    catalog = f"\nBundled historical tables also available:\n{catalog_note}\n" if catalog_note else "\n"
+    return [
+        Message("system", MANIPULATE_SQL_SYSTEM),
+        Message("user", MANIPULATE_SQL_USER.format(
+            question=question, tables=tables_desc, samples=samples_json, catalog=catalog)),
+    ]
+
+
+def build_dataapp_timeseries_messages(
+    question, metric_line, entity, start, end, rows_json, capped=False
+):
+    from aiu_chat.agent.llm import Message
+
+    capped_txt = " (the range was capped to stay within limits)" if capped else ""
+    return [
+        Message("system", DATAAPP_TIMESERIES_SYSTEM),
+        Message("user", DATAAPP_TIMESERIES_USER.format(
+            question=question, metric_line=metric_line, entity=entity,
+            start=start, end=end, capped=capped_txt, rows=rows_json)),
     ]
 
 
