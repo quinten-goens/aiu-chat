@@ -15,8 +15,8 @@ They layer on top of each other:
 
 | # | Feature | Design doc | Status |
 |---|---------|-----------|--------|
-| 1 | **Entity / knowledge layer** — canonical entities + aliases (states, airports, ANSPs, FIRs) built at ingest inside DuckDB; deterministic resolver. The backbone that makes the rest reliable. | [entity-layer.md](entity-layer.md) | design ✅ · impl ⏳ |
-| 2 | **Multi-source planner** — router returns *multiple* routes; orchestrator runs each and synthesizes one grounded answer. | _tbd_ | not started |
+| 1 | **Entity / knowledge layer** — canonical entities + aliases (states, airports; ANSPs/FIRs later) built at ingest inside DuckDB, enriched from OurAirports; deterministic resolver. The backbone that makes the rest reliable. | [entity-layer.md](entity-layer.md) | design ✅ · **impl ✅** |
+| 2 | **Multi-source planner** — router returns *multiple* routes; orchestrator runs each and synthesizes one grounded answer. | [multi-source-planner.md](multi-source-planner.md) | design ✅ · **impl ✅** |
 | 3 | **Per-source fan-out** — extract a list of entities/metrics and loop N fetches to the same source (e.g. Data App per-country), merged into one table. | _tbd_ | not started |
 | 4 | **Aggregation agent** — a second pass that reconciles multi-source frames via a **deterministic DuckDB query** (model never does arithmetic) and narrates. | _tbd_ | not started |
 
