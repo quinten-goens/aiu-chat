@@ -157,8 +157,8 @@ SUGGESTIONS = [
         [
             ("How many flights were there on the network on the 10th of March 2026?",
              "How many **flights** on the **network** on **10 March 2026**?"),
-            ("Which airport had the highest arrival punctuality on 10 March 2025?",
-             "Which **airport** had the **highest punctuality** on **10 March 2025**?"),
+            ("How many flights were there on the network on 10 March 2026 and on 10 March 2025?",
+             "Flights on the **network** on **10 Mar 2026** *and* **10 Mar 2025**?"),
             ("What was the busiest aircraft operator in Estonia in 2025?",
              "Busiest **airline** in **Estonia** in **2025**?"),
         ],
@@ -223,48 +223,21 @@ def _client(tier: str):
     return build_client(tier)
 
 
-def _render_turn(turn, idx):
-    """Render a Turn: combined prose, optional chart + table + SQL, and sources.
+def _render_evidence(turn, key):
+    """Render one turn's grounded evidence: chart + table + SQL, NOP messages,
+    Data App source chips, live-network chip, and any cross-frame aggregate.
 
-    `idx` makes element keys unique across replayed turns — Streamlit raises
-    StreamlitDuplicateElementId if two charts/dataframes share an auto-ID.
-    """
-    # A clarifying question: show it plainly, no route chrome.
-    if turn.needs_clarification:
-        st.markdown(f"❓ {turn.answer}")
-        st.caption("Please reply with the detail and I'll continue.")
-        return
-
-    # Show how the question was routed (transparency into the agent's choice).
-    # Multi-source turns show a chip per source; single-source shows one.
-    routes = getattr(turn, "routes", None) or [turn.route]
-    chips = []
-    whys = []
-    for r in routes:
-        label, why = ROUTE_INFO.get(r, (r, ""))
-        chips.append(_chip(label))
-        if why:
-            whys.append(f"**{label}** — {why}")
-    if len(routes) > 1:
-        chips.insert(0, _chip("🔀 Multi-source"))
-    st.markdown(" ".join(chips), unsafe_allow_html=True)
-    detail = "\n\n".join(whys)
-    if turn.standalone_question and turn.standalone_question != turn.question:
-        detail += f"\n\nInterpreted your question as: *{turn.standalone_question}*"
-    if detail:
-        with st.expander("How I answered this"):
-            st.markdown(detail)
-
-    st.markdown(turn.answer)
-
+    `key` is a unique string prefix for Streamlit element keys. Called for a
+    plain turn and once per sub-turn of a decomposed compound answer, so it must
+    not print the prose (the caller does that) — only the auditable artifacts."""
     data = turn.data
     if data is not None and data.result is not None and not data.result.dataframe.empty:
         df = data.result.dataframe
         # Chart first (if the spec is valid + chart-worthy), then the table.
         fig = make_chart(data.chart_spec, df)
         if fig is not None:
-            st.plotly_chart(fig, use_container_width=True, key=f"chart_{idx}")
-        st.dataframe(df, use_container_width=True, hide_index=True, key=f"df_{idx}")
+            st.plotly_chart(fig, use_container_width=True, key=f"chart_{key}")
+        st.dataframe(df, use_container_width=True, hide_index=True, key=f"df_{key}")
         if data.result.truncated:
             st.caption(f"Showing first {data.result.row_count} rows.")
         if data.sql:
@@ -305,9 +278,56 @@ def _render_turn(turn, idx):
     if agg is not None and agg.dataframe is not None and not agg.dataframe.empty:
         st.markdown(_chip("🧮 Combined figure (computed)"), unsafe_allow_html=True)
         st.dataframe(agg.dataframe, use_container_width=True, hide_index=True,
-                     key=f"agg_{idx}")
+                     key=f"agg_{key}")
         with st.expander("Show aggregation SQL"):
             st.code(agg.sql, language="sql")
+
+
+def _render_turn(turn, idx):
+    """Render a Turn: combined prose, optional chart + table + SQL, and sources.
+
+    `idx` makes element keys unique across replayed turns — Streamlit raises
+    StreamlitDuplicateElementId if two charts/dataframes share an auto-ID.
+    """
+    # A clarifying question: show it plainly, no route chrome.
+    if turn.needs_clarification:
+        st.markdown(f"❓ {turn.answer}")
+        st.caption("Please reply with the detail and I'll continue.")
+        return
+
+    # Show how the question was routed (transparency into the agent's choice).
+    # Multi-source turns show a chip per source; single-source shows one.
+    routes = getattr(turn, "routes", None) or [turn.route]
+    chips = []
+    whys = []
+    for r in routes:
+        label, why = ROUTE_INFO.get(r, (r, ""))
+        chips.append(_chip(label))
+        if why:
+            whys.append(f"**{label}** — {why}")
+    if len(routes) > 1:
+        chips.insert(0, _chip("🔀 Multi-source"))
+    st.markdown(" ".join(chips), unsafe_allow_html=True)
+    detail = "\n\n".join(whys)
+    if turn.standalone_question and turn.standalone_question != turn.question:
+        detail += f"\n\nInterpreted your question as: *{turn.standalone_question}*"
+    if detail:
+        with st.expander("How I answered this"):
+            st.markdown(detail)
+
+    st.markdown(turn.answer)
+
+    # A decomposed compound turn carries a per-part sub-turn; render each part's
+    # evidence (chart/table/SQL/Data App chips) under its sub-question heading so
+    # every figure stays auditable. Otherwise render this turn's own evidence.
+    sub_turns = getattr(turn, "sub_turns", None)
+    if sub_turns:
+        for j, st_sub in enumerate(sub_turns):
+            with st.container(border=True):
+                st.caption(f"Part {j + 1}: {st_sub.standalone_question}")
+                _render_evidence(st_sub, f"{idx}_{j}")
+    else:
+        _render_evidence(turn, str(idx))
 
     if turn.sources:
         seen = []

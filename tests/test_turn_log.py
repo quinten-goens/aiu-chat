@@ -85,6 +85,46 @@ def test_live_payload_nop():
     assert rec["live_payload"]["nop"][0]["type"] == "TACTICAL"
 
 
+def test_compound_turn_captures_each_part():
+    # A decomposed compound turn: sub-turns carry their own evidence, and the
+    # top-level record's route is the union.
+    df = pd.DataFrame({"period": ["2026-03-10"], "flights": [24864]})
+    sub1 = SimpleNamespace(
+        standalone_question="How many flights on the network on 10 March 2026?",
+        route="dataapp", routes=["dataapp"], answer="24,864 flights.",
+        data=None, concept=None, nop=None, nm_live=None,
+        dataapp=SimpleNamespace(
+            results=[], result=None, ranking=None,
+            network=SimpleNamespace(sync_date="2026-03-10", metric="traffic",
+                                    records=[{"dateRange": "DY", "value": 24864}]),
+        ),
+    )
+    result = SimpleNamespace(dataframe=df, row_count=1, truncated=False)
+    sub2 = SimpleNamespace(
+        standalone_question="How many flights on the network on 10 March 2025?",
+        route="data", routes=["data"], answer="23,000 flights.",
+        data=SimpleNamespace(sql="SELECT ...", chart_spec=None, result=result),
+        concept=None, nop=None, nm_live=None, dataapp=None,
+    )
+    turn = SimpleNamespace(
+        question="flights on 10 Mar 2026 and 10 Mar 2025",
+        standalone_question="flights on 10 Mar 2026 and 10 Mar 2025",
+        route="dataapp", routes=["dataapp", "data"],
+        needs_clarification=False, answer="24,864 then 23,000.", sources=[],
+        data=None, concept=None, nop=None, dataapp=None, nm_live=None,
+        sub_turns=[sub1, sub2],
+    )
+    rec = build_turn_record(turn, turn_index=1, model_tier="x", latency_ms=10)
+
+    assert rec["route"] == "dataapp+data"        # union of the parts
+    assert "sql" not in rec                        # top-level has no own evidence
+    parts = rec["sub_turns"]
+    assert len(parts) == 2
+    assert parts[0]["live_payload"]["dataapp"][0]["metric"] == "traffic"
+    assert parts[1]["sql"] == "SELECT ..."
+    assert parts[1]["result_table"] == [{"period": "2026-03-10", "flights": 24864}]
+
+
 def test_sources_serialised():
     src = SimpleNamespace(source_title="ASMA methodology",
                           source_url="https://x/asma", text="text", score=0.9)

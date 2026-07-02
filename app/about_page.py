@@ -93,6 +93,12 @@ questions the model writes a query; the actual figures always come from executin
 that query (or a live API), never from the model's memory. Results can be shown
 as **interactive charts** when useful.
 
+A question that bundles several **independent parts** ("how many flights on the
+network on 10 March 2026 **and** on 10 March 2025?", "traffic in France and
+delays in Germany") is **split into standalone sub-questions**, each routed and
+answered on its own, and the grounded results are combined into one answer — so
+the two halves can use different dates, metrics, or subjects.
+
 If a question is missing an essential detail (e.g. "show me the delays" — for
 which airport?), the assistant **asks one clarifying question** instead of
 guessing; your reply is merged with the original question. It also rewrites

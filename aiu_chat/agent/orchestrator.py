@@ -55,6 +55,7 @@ class Turn:
     needs_clarification: bool = False  # True when the turn is a clarifying question
     aggregate: object = None  # optional cross-frame AggResult (feature #4)
     aggregate_answer: str = ""  # narrated prose of the aggregate result
+    sub_turns: list = field(default_factory=list)  # per-part turns (decomposed #5)
 
 
 def _history_text(history: list[Turn], max_turns: int = 4) -> str:
@@ -87,6 +88,26 @@ def rewrite_followup(question: str, history: list[Turn], client: OllamaClient) -
         return rewritten or question
     except Exception:
         return question  # rewriting is best-effort; fall back to the raw question
+
+
+def decompose_question(question: str, client: OllamaClient) -> list[str]:
+    """Split a compound question into independent standalone sub-questions.
+
+    Returns a list of 1..MAX_SUBQUESTIONS questions in the order asked. Most
+    questions are single -> a one-element list (the question itself). Best-effort
+    and conservative: any failure, an empty/malformed result, or a single part
+    falls back to `[question]`, so decomposition never breaks a plain question."""
+    try:
+        result = client.chat_json(prompts.build_decompose_messages(question))
+    except Exception:
+        return [question]
+    raw = result.get("questions")
+    if not isinstance(raw, list):
+        return [question]
+    parts = [str(q).strip() for q in raw if isinstance(q, str) and str(q).strip()]
+    if len(parts) <= 1:
+        return [question]  # single part -> answer the original question verbatim
+    return parts[: config.MAX_SUBQUESTIONS]
 
 
 def route_question(question: str, client: OllamaClient) -> str:
@@ -237,6 +258,36 @@ def answer(
         turn.answer = catalog.describe()
         return turn
 
+    # Decompose a compound question ("flights on the network on 10 Mar 2026 AND
+    # punctuality at LEBL on 10 Mar 2025", "traffic in France and delays in
+    # Germany") into independent standalone sub-questions. Each sub-question is
+    # answered through the FULL route pipeline, then the grounded sub-answers are
+    # synthesised into one. A single-part question yields one sub-question and
+    # behaves exactly as before.
+    subqs = decompose_question(standalone, client) if config.DECOMPOSE else [standalone]
+    if len(subqs) > 1:
+        status("Planning the answer…",
+               "Split into "
+               + str(len(subqs))
+               + " parts:\n" + "\n".join(f"{i}. {q}" for i, q in enumerate(subqs, 1)))
+        return _answer_compound(question, standalone, subqs,
+                                client=client, catalog=catalog, status=status)
+
+    return _answer_single(question, standalone, client=client, catalog=catalog, status=status)
+
+
+def _answer_single(
+    question: str,
+    standalone: str,
+    *,
+    client: OllamaClient,
+    catalog: Catalog,
+    status,
+) -> Turn:
+    """Route, dispatch, and combine a SINGLE standalone question into one Turn.
+
+    This is the per-question pipeline: it is called once for a plain question and
+    once per sub-question for a decomposed compound one."""
     status("Choosing the best source…")
     max_routes = config.MAX_ROUTES if config.MULTI_SOURCE else 1
     routes = plan_routes(standalone, client, max_routes=max_routes)
@@ -322,6 +373,72 @@ def answer(
         _maybe_aggregate(turn, standalone, client, status)
 
     turn.answer, turn.sources = _combine(turn, client=client, status=status)
+    return turn
+
+
+def _answer_compound(
+    question: str,
+    standalone: str,
+    subqs: list[str],
+    *,
+    client: OllamaClient,
+    catalog: Catalog,
+    status,
+) -> Turn:
+    """Answer each independent sub-question through the full pipeline, then merge
+    the grounded sub-answers into one synthesised Turn.
+
+    The merged Turn keeps every sub-turn (for the UI's per-part charts/tables and
+    for logging) and unions their sources. If a sub-question itself needs
+    clarification, we ask that one question and stop — the user's reply re-runs
+    the whole compound question next turn."""
+    sub_turns: list[Turn] = []
+    for i, sub in enumerate(subqs, 1):
+        status("Answering part " + str(i) + f" of {len(subqs)}…", f"*{sub}*")
+        # Each sub-question is already standalone -> its own question and
+        # standalone_question are the sub text (no further rewrite).
+        st = _answer_single(sub, sub, client=client, catalog=catalog, status=status)
+        # A clarifying sub-question can't be silently merged — surface it and stop.
+        if st.needs_clarification:
+            merged = Turn(question=question, standalone_question=standalone, route=st.route)
+            merged.needs_clarification = True
+            merged.answer = st.answer
+            return merged
+        sub_turns.append(st)
+
+    # Merge: union routes/sources, collect (label, grounded answer) parts.
+    routes: list[str] = []
+    for st in sub_turns:
+        for r in st.routes or [st.route]:
+            if r not in routes:
+                routes.append(r)
+
+    primary = sub_turns[0].route if sub_turns else "data"
+    turn = Turn(question=question, standalone_question=standalone, route=primary)
+    turn.routes = routes
+    turn.sub_turns = sub_turns
+
+    sources: list = []
+    seen_urls: set = set()
+    for st in sub_turns:
+        for s in st.sources:
+            url = getattr(s, "source_url", None)
+            if url not in seen_urls:
+                seen_urls.add(url)
+                sources.append(s)
+    turn.sources = sources
+
+    # Synthesise the sub-answers into one, each labelled by its sub-question so the
+    # synthesis prompt keeps every figure with its own context. Never recomputes.
+    labelled = [(f"Part {i}: {st.standalone_question}", st.answer)
+                for i, st in enumerate(sub_turns, 1)]
+    if len(labelled) == 1:
+        turn.answer = labelled[0][1]
+    else:
+        synth = _synthesize(standalone, labelled, client, status) if config.MULTI_SOURCE else None
+        turn.answer = synth or "\n\n".join(
+            f"**{st.standalone_question}**\n\n{st.answer}" for st in sub_turns)
+    logger.info("compound turn parts=%d routes=%s", len(sub_turns), routes)
     return turn
 
 

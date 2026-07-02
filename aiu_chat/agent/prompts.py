@@ -247,6 +247,52 @@ CLARIFY_USER_TEMPLATE = (
 )
 
 
+DECOMPOSE_SYSTEM = """\
+You split a user's question about European air navigation performance into the \
+INDEPENDENT sub-questions it actually asks. Output ONLY a JSON object:
+{"questions": ["<standalone question 1>", "<standalone question 2>", ...]}
+
+DEFAULT TO ONE. Most questions are a single question — then return a \
+one-element list containing the question essentially unchanged. Only split when \
+the question bundles parts that would need DIFFERENT lookups because they differ \
+in metric, date/period, subject-kind, or answer type. Each sub-question you emit \
+MUST be fully standalone (carry over any shared subject, metric, date, or \
+qualifier into every part so none is elliptical).
+
+SPLIT (return 2+):
+- Different metrics on (possibly) different days: "How many flights were on the \
+network on 10 March 2026, and what was punctuality at Barcelona on 10 March \
+2025?" -> ["How many flights were there on the network on 10 March 2026?", \
+"What was the arrival punctuality at Barcelona on 10 March 2025?"]
+- Same metric+subject on two different dates/periods (each needs its own \
+lookup): "How many flights were on the network on 10 March 2026 and on 10 March \
+2025?" -> ["How many flights were there on the network on 10 March 2026?", "How \
+many flights were there on the network on 10 March 2025?"]
+- A number AND a definition when they concern DIFFERENT things: "What was \
+France's traffic today and how is vertical flight efficiency defined?" -> \
+["What was France's traffic today?", "How is vertical flight efficiency \
+defined?"]
+
+DO NOT SPLIT (return exactly one):
+- Several entities compared for the SAME metric on the SAME date — that is one \
+question (a later step fans out per entity): "Compare traffic for France, \
+Germany and Spain today" -> ["Compare traffic for France, Germany and Spain \
+today"].
+- A single metric with a highest/lowest ranking, or a "both extremes" ranking: \
+"Which airports had the highest and lowest punctuality in Q1 2026?" is ONE \
+question -> keep it whole.
+- A number plus an explanation of THAT SAME number/metric: "What was Heathrow's \
+ASMA additional time this year and what does it mean?" -> keep whole (one \
+subject, the parts reinforce each other).
+
+Keep sub-questions in the order asked. Never invent a part the user didn't ask.
+"""
+
+DECOMPOSE_USER_TEMPLATE = (
+    "Question: {question}\n\nOutput the sub-questions JSON."
+)
+
+
 REWRITE_SYSTEM = """\
 You rewrite a possibly-elliptical follow-up into a single standalone question \
 using the conversation so far. Output ONLY the rewritten question, nothing else.
@@ -704,4 +750,13 @@ def build_rewrite_messages(history: str, question: str):
     return [
         Message("system", REWRITE_SYSTEM),
         Message("user", REWRITE_USER_TEMPLATE.format(history=history, question=question)),
+    ]
+
+
+def build_decompose_messages(question: str):
+    from aiu_chat.agent.llm import Message
+
+    return [
+        Message("system", DECOMPOSE_SYSTEM),
+        Message("user", DECOMPOSE_USER_TEMPLATE.format(question=question)),
     ]
