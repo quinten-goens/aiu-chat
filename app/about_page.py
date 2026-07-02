@@ -60,9 +60,11 @@ day** (including past dates, e.g. 10 March 2026), a period (this week /
 month / year-to-date), **the whole network**, a named country/airport/ANSP/
 airline, or a **ranking** ("which airport had the highest punctuality", "busiest
 airport pair for an airline"). It can also return a **daily series over a date
-range** ("daily traffic from 1 Jan to 1 May 2026") that is then optionally
-**aggregated or derived** (weekly/monthly totals, delay-per-flight, rolling
-averages — computed with validated SQL, never by the model) and **charted**.
+range** ("daily traffic from 1 Jan to 1 May 2026"), including **several entities
+compared on one chart** ("France vs Germany daily traffic"), that is then
+optionally **aggregated or derived** (weekly/monthly totals, delay-per-flight,
+rolling averages — computed with validated SQL, never by the model) and
+**charted**.
 Updated once a day — **not real-time**; the latest available day is D-1
 (yesterday).
 

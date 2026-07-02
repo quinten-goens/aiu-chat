@@ -122,6 +122,25 @@ def test_transform_weekly_resample():
     assert len(out) == 2
 
 
+def test_transform_partitions_by_entity():
+    # Two entities stacked in each frame; a per-entity ratio must join ON date
+    # AND entity and never cross-multiply France's delay by Germany's flights.
+    delay = pd.DataFrame([
+        {"date": "2026-03-01", "entity": "France", "value": 100.0},
+        {"date": "2026-03-01", "entity": "Germany", "value": 300.0},
+    ])
+    traffic = pd.DataFrame([
+        {"date": "2026-03-01", "entity": "France", "value": 10.0},
+        {"date": "2026-03-01", "entity": "Germany", "value": 30.0},
+    ])
+    sql = ("SELECT d.date, d.entity, d.value*1.0/t.value AS dpf "
+           "FROM delay_ts d JOIN traffic_ts t ON d.date=t.date AND d.entity=t.entity "
+           "ORDER BY d.entity")
+    out = agg_tool.run_transform(sql, {"delay_ts": delay, "traffic_ts": traffic}).dataframe
+    assert list(out["dpf"]) == [10.0, 10.0]
+    assert list(out["entity"]) == ["France", "Germany"]
+
+
 def test_transform_rejects_non_select():
     for bad in ("DROP TABLE delay_ts", "SELECT * FROM delay_ts; DROP TABLE traffic_ts",
                 "SELECT * FROM read_parquet('x.parquet')"):
@@ -213,6 +232,88 @@ def test_timeseries_multi_metric_runs_manipulator(monkeypatch):
     assert list(ts.dataframe["delay_per_flight"]) == [10.0, 10.0]
 
 
+def test_timeseries_multi_entity_single_metric_tags_and_charts(monkeypatch):
+    # "compare France and Germany daily traffic" -> one long frame with an
+    # `entity` column, charted split by entity. No manipulator (single metric).
+    monkeypatch.setattr(config, "DATAAPP_TIMESERIES", True)
+    monkeypatch.setattr(config, "FANOUT", True)
+    monkeypatch.setattr(config, "MAX_FANOUT", 4)
+    spec = {"query_kind": "timeseries", "metric": "traffic", "metrics": ["traffic"],
+            "start": "2026-01-01", "end": "2026-01-02", "transform": None,
+            "entities": [{"entity_kind": "country", "entity": "France"},
+                         {"entity_kind": "country", "entity": "Germany"}]}
+
+    def fake_ts(metric, *, start, end, kind=None, query=None):
+        base = {"France": 100.0, "Germany": 300.0}[query]
+        rows = [{"date": "2026-01-01", "value": base, "avgValue": None},
+                {"date": "2026-01-02", "value": base + 10, "avgValue": None}]
+        return d.TimeseriesResult(metric, d.Entity("country", 1, query, ""),
+                                  start, end, rows=rows)
+
+    client = _TsClient(
+        json_seq=[spec, {"show_chart": True, "chart_type": "line", "x": "date",
+                         "y": ["value"], "series": "entity"}],
+        chat_seq=["France ran near 100-110, Germany near 300-310 over 1-2 Jan."],
+    )
+    ans = da.answer_dataapp_question(
+        "compare France and Germany daily traffic 1-2 Jan 2026",
+        client=client, fetch_ts=fake_ts)
+    assert ans.ok
+    ts = ans.timeseries
+    assert ts.entity == "France, Germany"        # both entities carried
+    assert ts.transform_sql is None              # single metric -> no manipulation
+    df = ts.dataframe
+    assert "entity" in df.columns
+    assert set(df["entity"]) == {"France", "Germany"}
+    assert len(df) == 4                           # 2 days x 2 entities
+    # The chart splits by entity so both series show on one chart.
+    assert ts.chart_spec is not None
+    assert ts.chart_spec.get("series") == "entity"
+
+
+def test_timeseries_multi_entity_multi_metric_manipulator_partitions(monkeypatch):
+    # "delay per flight for France and Germany each day" -> two metrics x two
+    # entities. The manipulator joins ON date AND entity and keeps entity out.
+    monkeypatch.setattr(config, "DATAAPP_TIMESERIES", True)
+    monkeypatch.setattr(config, "FANOUT", True)
+    monkeypatch.setattr(config, "MAX_FANOUT", 4)
+    spec = {"query_kind": "timeseries", "metric": "delay",
+            "metrics": ["delay", "traffic"], "start": "2026-03-01", "end": "2026-03-02",
+            "transform": "delay minutes divided by flights per day, per entity",
+            "entities": [{"entity_kind": "country", "entity": "France"},
+                         {"entity_kind": "country", "entity": "Germany"}]}
+
+    def fake_ts(metric, *, start, end, kind=None, query=None):
+        table = {
+            ("delay", "France"): [100.0, 200.0], ("traffic", "France"): [10.0, 20.0],
+            ("delay", "Germany"): [300.0, 600.0], ("traffic", "Germany"): [30.0, 60.0],
+        }[(metric, query)]
+        rows = [{"date": "2026-03-01", "value": table[0], "avgValue": None},
+                {"date": "2026-03-02", "value": table[1], "avgValue": None}]
+        return d.TimeseriesResult(metric, d.Entity("country", 1, query, ""),
+                                  start, end, rows=rows)
+
+    manip_sql = ("SELECT d.date, d.entity, d.value*1.0/t.value AS delay_per_flight "
+                 "FROM delay_ts d JOIN traffic_ts t ON d.date=t.date AND d.entity=t.entity "
+                 "ORDER BY d.date, d.entity")
+    client = _TsClient(
+        json_seq=[spec, {"show_chart": True, "chart_type": "line", "x": "date",
+                         "y": ["delay_per_flight"], "series": "entity"}],
+        chat_seq=[manip_sql, "Both held at 10 delay minutes per flight."],
+    )
+    ans = da.answer_dataapp_question(
+        "daily delay per flight for France and Germany 1-2 Mar 2026",
+        client=client, fetch_ts=fake_ts)
+    assert ans.ok
+    ts = ans.timeseries
+    assert ts.transform_sql == manip_sql
+    df = ts.dataframe
+    assert "entity" in df.columns
+    # Per-entity ratio kept apart: every row is 10 (never cross-joined).
+    assert list(df["delay_per_flight"]) == [10.0, 10.0, 10.0, 10.0]
+    assert set(df["entity"]) == {"France", "Germany"}
+
+
 def test_timeseries_rejects_bad_dates(monkeypatch):
     monkeypatch.setattr(config, "DATAAPP_TIMESERIES", True)
     spec = {"query_kind": "timeseries", "metric": "traffic", "metrics": ["traffic"],
@@ -244,3 +345,16 @@ def test_live_network_daily_series_jan_to_mar_2026():
     assert all((r["value"] or 0) > 0 for r in ts.rows)
     # The known 10 March-adjacent value sanity: 1 Jan should be present.
     assert dates[0] >= "2026-01-01"
+
+
+@pytest.mark.live
+def test_live_two_country_comparison_series():
+    # Two named entities -> two separate daily series over the same window.
+    fr = _live_or_skip(d.fetch_timeseries, "traffic", start="2026-02-01",
+                       end="2026-02-15", kind="country", query="France")
+    de = _live_or_skip(d.fetch_timeseries, "traffic", start="2026-02-01",
+                       end="2026-02-15", kind="country", query="Germany")
+    assert fr.rows and de.rows
+    assert fr.entity.name != de.entity.name
+    assert all((r["value"] or 0) > 0 for r in fr.rows)
+    assert all((r["value"] or 0) > 0 for r in de.rows)
