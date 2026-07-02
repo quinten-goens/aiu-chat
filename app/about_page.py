@@ -103,6 +103,12 @@ delays in Germany") is **split into standalone sub-questions**, each routed and
 answered on its own, and the grounded results are combined into one answer — so
 the two halves can use different dates, metrics, or subjects.
 
+The example panel has a **Simple / Advanced** toggle: the *Advanced* set shows
+off the multi-step answers — a **daily series over a date range**, an
+**aggregate/derive** step (e.g. weekly totals, or ATFM delay **per flight** =
+delay minutes ÷ flights, computed with validated SQL) rendered as a **chart**,
+and **multi-part** questions answered in one go.
+
 If a question is missing an essential detail (e.g. "show me the delays" — for
 which airport?), the assistant **asks one clarifying question** instead of
 guessing; your reply is merged with the original question. It also rewrites

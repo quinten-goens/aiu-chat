@@ -140,7 +140,11 @@ def _chip(text: str, kind: str = "", url: str | None = None) -> str:
 
 # Suggested topics shown when the chat is empty. Each item is (question, label),
 # where the label is the same text with the key terms in **bold** for the button.
-SUGGESTIONS = [
+# Two example sets, switched by a "Simple / Advanced" toggle above the grid.
+# SIMPLE covers the everyday one-shot questions; ADVANCED showcases the multi-step
+# capabilities — question decomposition, period series over a date range, and the
+# fetch->manipulate->visualise pipeline (aggregation & per-flight derivations).
+SIMPLE_SUGGESTIONS = [
     (
         "🟢 Live now",
         [
@@ -157,10 +161,10 @@ SUGGESTIONS = [
         [
             ("How many flights were there on the network on the 10th of March 2026?",
              "How many **flights** on the **network** on **10 March 2026**?"),
-            ("Give me the daily traffic on the network from 1 January 2026 to 1 May 2026",
-             "**Daily traffic** on the network **1 Jan → 1 May 2026**"),
-            ("Show the weekly ATFM delay per flight over March 2026",
-             "**Weekly ATFM delay per flight** over **March 2026**"),
+            ("Which airport had the highest arrival punctuality on 10 March 2025?",
+             "Which **airport** had the **highest punctuality** on **10 Mar 2025**?"),
+            ("What was the busiest aircraft operator in Estonia in 2025?",
+             "Busiest **airline** in **Estonia** in **2025**?"),
         ],
     ),
     (
@@ -183,6 +187,53 @@ SUGGESTIONS = [
              "Any **airport regulations** or **airspace** issues now?"),
             ("How is additional ASMA time calculated?",
              "How is **additional ASMA time** calculated?"),
+        ],
+    ),
+]
+
+ADVANCED_SUGGESTIONS = [
+    (
+        "🧮 Aggregate & derive",
+        [
+            ("Show the weekly ATFM delay per flight on the network from 1 January 2026 to 1 May 2026 as a line chart",
+             "**Weekly ATFM delay per flight** · Jan→May 2026 · **line chart**"),
+            ("Give me the monthly total CO2 emissions on the network over the first quarter of 2026",
+             "**Monthly total CO2** · **Q1 2026**"),
+            ("What was the 7-day rolling average of network traffic in February 2026?",
+             "**7-day rolling average** of traffic · **Feb 2026**"),
+        ],
+    ),
+    (
+        "📈 Daily series",
+        [
+            ("Give me the daily traffic on the network from 1 January 2026 to 1 May 2026 as a chart",
+             "**Daily network traffic** · **1 Jan → 1 May 2026** · chart"),
+            ("Plot France's daily ATFM delay from 1 February 2026 to 1 April 2026",
+             "**France daily ATFM delay** · **Feb → Apr 2026**"),
+            ("Show Heathrow's daily arrival punctuality over March 2026",
+             "**Heathrow daily punctuality** · **March 2026**"),
+        ],
+    ),
+    (
+        "🔀 Multi-part",
+        [
+            ("How many flights were there on the network on 10 March 2026 and on 10 March 2025?",
+             "Network flights **10 Mar 2026 vs 2025**"),
+            ("What was the network traffic on 10 March 2026 and the arrival punctuality at Barcelona on 10 March 2025?",
+             "Network traffic **&** Barcelona punctuality — two dates"),
+            ("How many flights did France have on 10 March 2026 and how is horizontal flight efficiency defined?",
+             "France's flights on **10 Mar 2026** + a **definition**"),
+        ],
+    ),
+    (
+        "📊+📖 Data + concept",
+        [
+            ("What was Heathrow's ASMA additional time this year, and how is ASMA additional time defined?",
+             "**Heathrow ASMA time** + what **ASMA** *means*"),
+            ("Which ANSP had the most en-route ATFM delay in 2025, and what counts as en-route ATFM delay?",
+             "Top **en-route delay** ANSP + its **definition**"),
+            ("Show the weekly network delay per flight over March 2026 and explain what ATFM delay is",
+             "**Weekly delay/flight** + what **ATFM delay** is"),
         ],
     ),
 ]
@@ -355,16 +406,31 @@ def _render_turn(turn, idx):
 
 def _render_suggestions():
     """Topic cards with example questions arranged in an aligned grid; clicking
-    one asks it. Returns the chosen question, or None."""
+    one asks it. A Simple/Advanced toggle switches between the everyday examples
+    and the multi-step showcase (decomposition, period series, aggregate/derive).
+    Returns the chosen question, or None."""
+    mode = st.segmented_control(
+        "Example difficulty",
+        ["Simple", "Advanced"],
+        default="Simple",
+        key="sugg_mode",
+        label_visibility="collapsed",
+    ) or "Simple"
+    if mode == "Advanced":
+        st.caption("Advanced examples show off multi-step answers — question "
+                   "decomposition, daily series over a date range, and "
+                   "aggregate/derive (e.g. delay per flight) with a chart.")
+    groups = ADVANCED_SUGGESTIONS if mode == "Advanced" else SIMPLE_SUGGESTIONS
+
     chosen = None
-    cols = st.columns(len(SUGGESTIONS), gap="small")
-    for col, (topic, questions) in zip(cols, SUGGESTIONS):
+    cols = st.columns(len(groups), gap="small")
+    for col, (topic, questions) in zip(cols, groups):
         with col:
             # Fixed single-line title so columns stay row-aligned regardless of
             # title length.
             st.markdown(f'<div class="aiu-sugg-title">{topic}</div>', unsafe_allow_html=True)
             for j, (question, label) in enumerate(questions):
-                if st.button(label, key=f"sugg_{topic}_{j}", use_container_width=True):
+                if st.button(label, key=f"sugg_{mode}_{topic}_{j}", use_container_width=True):
                     chosen = question
     return chosen
 
