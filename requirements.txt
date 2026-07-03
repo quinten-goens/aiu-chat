@@ -3,7 +3,9 @@
 # vector index, so neither Ollama nor a Parquet directory is needed in the cloud.
 duckdb>=1.1.0
 requests>=2.31.0
-streamlit>=1.36.0  # components.v1.html iframe renders the About-page Mermaid diagrams
+streamlit>=1.36.0
+streamlit-mermaid>=0.3.0  # renders the About-page Mermaid diagrams
+altair<5                  # streamlit-mermaid pins altair<5; keep it explicit & deterministic
 plotly>=5.22.0
 pandas>=2.0.0
 sqlglot>=25.0.0

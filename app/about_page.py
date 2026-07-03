@@ -1,25 +1,17 @@
 """About page content (rendered via st.navigation from streamlit_app.py).
 
 This page is intentionally detailed: it doubles as living documentation of how the
-system is built. Diagrams are drawn with Mermaid, rendered client-side via the
-Mermaid ESM bundle from a CDN inside a sandboxed components iframe — no Streamlit
-plugin package and no Graphviz/Mermaid system binary on the host.
+system is built. Diagrams are drawn with Mermaid, rendered by the
+``streamlit-mermaid`` component (its own bundled frontend — no CDN and no
+Graphviz/Mermaid system binary on the host), which auto-sizes so the diagrams
+don't overlap the surrounding text.
 """
 from __future__ import annotations
 
-import html as _html
-import json as _json
-
 import streamlit as st
-import streamlit.components.v1 as _components
+from streamlit_mermaid import st_mermaid
 
 from aiu_chat import config
-
-# Pinned Mermaid ESM build from a CDN. Loaded client-side in the iframe; no
-# Python package and no system binary. (Streamlit's markdown does NOT render
-# mermaid fences, and st.html strips <script>, so we use a components iframe,
-# which is the supported way to execute third-party JS.)
-_MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
 
 
 def _term(title: str, body: str) -> None:
@@ -29,52 +21,14 @@ def _term(title: str, body: str) -> None:
 
 
 def _mermaid(diagram: str, *, height: int = 480) -> None:
-    """Render a Mermaid diagram client-side in a sandboxed components iframe.
+    """Render a Mermaid diagram via the streamlit-mermaid component.
 
     Streamlit has no native Mermaid support (a ```mermaid fence renders as an
-    inert code block, and st.html sanitises away <script>), so we load the
-    Mermaid ESM bundle from a CDN inside `components.v1.html` — the supported
-    way to run third-party JS. The iframe auto-resizes to the rendered SVG so
-    the diagram isn't clipped, with `height` only as an initial fallback.
+    inert code block), so we use the maintained ``streamlit-mermaid`` component.
+    An explicit pixel height is passed (sized per diagram) so the block reserves
+    the right vertical space and the figure never overlaps the text around it.
     """
-    code = diagram.strip()
-    # Embed the source as a JSON string (safe escaping), render it, then measure
-    # the SVG and grow the iframe to fit.
-    src = _json.dumps(code)
-    doc = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<style>
-  html, body {{ margin: 0; padding: 0; background: transparent; }}
-  #d {{ display: flex; justify-content: center; }}
-  #d svg {{ max-width: 100%; height: auto; }}
-</style>
-</head>
-<body>
-  <div id="d" class="mermaid">{_html.escape(code)}</div>
-  <script type="module">
-    import mermaid from "{_MERMAID_CDN}";
-    mermaid.initialize({{ startOnLoad: false, securityLevel: "loose", theme: "neutral" }});
-    const el = document.getElementById("d");
-    const source = {src};
-    try {{
-      const {{ svg }} = await mermaid.render("g", source);
-      el.innerHTML = svg;
-    }} catch (e) {{
-      el.innerHTML = "<pre style='white-space:pre-wrap'>" + String(e) + "</pre>";
-    }}
-    // Grow the iframe to the rendered diagram height so nothing is clipped.
-    const report = () => {{
-      const h = Math.ceil(el.getBoundingClientRect().height) + 16;
-      if (window.frameElement) window.frameElement.style.height = h + "px";
-    }};
-    requestAnimationFrame(report);
-    setTimeout(report, 200);
-  </script>
-</body>
-</html>"""
-    _components.html(doc, height=height, scrolling=False)
+    st_mermaid(diagram.strip(), height=f"{height}px")
 
 
 def render():
