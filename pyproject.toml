@@ -10,7 +10,7 @@ authors = [{ name = "Quinten Goens" }]
 dependencies = [
     "duckdb>=1.1.0",
     "requests>=2.31.0",
-    "streamlit>=1.47.0",  # native Mermaid rendering in st.markdown (About-page diagrams)
+    "streamlit>=1.36.0",  # components.v1.html iframe renders the About-page Mermaid diagrams
     "plotly>=5.22.0",
     "pandas>=2.0.0",
     "sqlglot>=25.0.0",        # parse/validate LLM-generated SQL (read-only enforcement)

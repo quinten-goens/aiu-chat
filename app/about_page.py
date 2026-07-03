@@ -1,14 +1,25 @@
 """About page content (rendered via st.navigation from streamlit_app.py).
 
 This page is intentionally detailed: it doubles as living documentation of how the
-system is built. Diagrams are drawn as ASCII/Unicode inside fenced code blocks so
-they render identically everywhere (no Graphviz/Mermaid binary needed on the host).
+system is built. Diagrams are drawn with Mermaid, rendered client-side via the
+Mermaid ESM bundle from a CDN inside a sandboxed components iframe — no Streamlit
+plugin package and no Graphviz/Mermaid system binary on the host.
 """
 from __future__ import annotations
 
+import html as _html
+import json as _json
+
 import streamlit as st
+import streamlit.components.v1 as _components
 
 from aiu_chat import config
+
+# Pinned Mermaid ESM build from a CDN. Loaded client-side in the iframe; no
+# Python package and no system binary. (Streamlit's markdown does NOT render
+# mermaid fences, and st.html strips <script>, so we use a components iframe,
+# which is the supported way to execute third-party JS.)
+_MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
 
 
 def _term(title: str, body: str) -> None:
@@ -17,10 +28,53 @@ def _term(title: str, body: str) -> None:
         st.markdown(body)
 
 
-def _mermaid(diagram: str) -> None:
-    """Render a Mermaid diagram natively (no plugin/binary): Streamlit renders a
-    ```mermaid fenced block in markdown. `diagram` is the Mermaid body only."""
-    st.markdown(f"```mermaid\n{diagram.strip()}\n```")
+def _mermaid(diagram: str, *, height: int = 480) -> None:
+    """Render a Mermaid diagram client-side in a sandboxed components iframe.
+
+    Streamlit has no native Mermaid support (a ```mermaid fence renders as an
+    inert code block, and st.html sanitises away <script>), so we load the
+    Mermaid ESM bundle from a CDN inside `components.v1.html` — the supported
+    way to run third-party JS. The iframe auto-resizes to the rendered SVG so
+    the diagram isn't clipped, with `height` only as an initial fallback.
+    """
+    code = diagram.strip()
+    # Embed the source as a JSON string (safe escaping), render it, then measure
+    # the SVG and grow the iframe to fit.
+    src = _json.dumps(code)
+    doc = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body {{ margin: 0; padding: 0; background: transparent; }}
+  #d {{ display: flex; justify-content: center; }}
+  #d svg {{ max-width: 100%; height: auto; }}
+</style>
+</head>
+<body>
+  <div id="d" class="mermaid">{_html.escape(code)}</div>
+  <script type="module">
+    import mermaid from "{_MERMAID_CDN}";
+    mermaid.initialize({{ startOnLoad: false, securityLevel: "loose", theme: "neutral" }});
+    const el = document.getElementById("d");
+    const source = {src};
+    try {{
+      const {{ svg }} = await mermaid.render("g", source);
+      el.innerHTML = svg;
+    }} catch (e) {{
+      el.innerHTML = "<pre style='white-space:pre-wrap'>" + String(e) + "</pre>";
+    }}
+    // Grow the iframe to the rendered diagram height so nothing is clipped.
+    const report = () => {{
+      const h = Math.ceil(el.getBoundingClientRect().height) + 16;
+      if (window.frameElement) window.frameElement.style.height = h + "px";
+    }};
+    requestAnimationFrame(report);
+    setTimeout(report, 200);
+  </script>
+</body>
+</html>"""
+    _components.html(doc, height=height, scrolling=False)
 
 
 def render():
@@ -263,7 +317,8 @@ flowchart TD
     class R,DEC,RT,CL,SY ai;
     class DIS det;
     class Q,ANS,CAT,ASK,AV term;
-"""
+""",
+        height=640,
     )
     st.caption(
         "Blue ✎ = a language-model step (routing / wording / query-writing). "
@@ -304,7 +359,8 @@ flowchart LR
     class D,C det;
     class G gate;
     class Q,A,X term;
-"""
+""",
+        height=360,
     )
     st.markdown(
         "**Why it's trustworthy:** the model *writes* SQL but never *computes* the "
@@ -338,7 +394,8 @@ flowchart LR
     class E,N ai;
     class V,AC det;
     class Q,A,K term;
-""".replace("DIM", str(config.EMBEDDING_DIM))
+""".replace("DIM", str(config.EMBEDDING_DIM)),
+        height=320,
     )
     st.markdown(
         "The corpus is definitions, methodology, acronyms and PDFs — chunked and "
@@ -377,7 +434,8 @@ flowchart TD
     class S,N ai;
     class ENT,NET,RANK,TS,M det;
     class Q,A term;
-""".replace("FAN", str(config.MAX_FANOUT))
+""".replace("FAN", str(config.MAX_FANOUT)),
+        height=560,
     )
     st.markdown(
         "The model **only fills a JSON spec** — it never builds API calls. Deterministic "
@@ -415,7 +473,8 @@ flowchart TD
     class N ai;
     class KW,LT det;
     class Q,A,H term;
-"""
+""",
+        height=400,
     )
 
     # -- nm_live path -------------------------------------------------------
@@ -438,7 +497,8 @@ flowchart LR
     class N ai;
     class F det;
     class Q,A,S term;
-"""
+""",
+        height=300,
     )
     st.markdown(
         "This is the **only** real-time path. Everything on the Data App path is D-1 "
@@ -476,7 +536,8 @@ flowchart TD
     class DEC,SY,BR,SY2 ai;
     class P1,P2,RUN det;
     class Q,A,PN,Q2,A2 term;
-"""
+""",
+        height=560,
     )
     st.markdown(
         "Each part is answered **on its own** through the full pipeline (so the two "
