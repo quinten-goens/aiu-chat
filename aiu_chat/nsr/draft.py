@@ -47,6 +47,31 @@ class Bullet:
     def source_ids(self) -> list[str]:
         return [e.message_id for e in self.evidence]
 
+    @property
+    def reads_as_continuation(self) -> bool:
+        """Does the text follow the printed entity name grammatically?
+
+        House style prints the name in bold and continues it ("Barcelona ACC
+        *recorded* ATC capacity delays..."), so a bullet must open with a verb. The
+        model sometimes opens with a noun phrase, which renders as "Belgrade ACC
+        ATC capacity regulations dominated the week".
+
+        Flagged rather than auto-repaired: prepending a verb to text we do not
+        parse turns a merely-awkward bullet into a wrong one ("EHAM recovered from
+        IT issues" would become "saw recovered from IT issues"). The analyst can
+        fix a flagged sentence in seconds; they cannot un-see a corrupted one.
+        """
+        if not self.text:
+            return True
+        first = self.text.split(" ", 1)[0].rstrip(",").lower()
+        return first.endswith(("ed", "ke")) or first in _CONTINUATION_OPENERS
+
+
+# Openers used across the published archive that are not past-tense "-ed" verbs.
+_CONTINUATION_OPENERS = frozenset({
+    "saw", "was", "were", "had", "also", "continued", "underwent", "met",
+})
+
 
 @dataclass
 class Draft:

@@ -50,6 +50,12 @@ def _about():
 
     about_page.render()
 
+
+def _nsr():
+    import nsr_page
+
+    nsr_page.render()
+
 st.set_page_config(page_title="Aviation Intelligence + Chat", page_icon="✈️", layout="centered")
 
 # EUROCONTROL logo at the very top of the sidebar, above the page menu.
@@ -657,6 +663,9 @@ _pages = [
 if config.admin_viewer_configured():
     _pages.append(st.Page(_admin, title="Admin Panel", icon="🗂️"))
 
+_pages.append(
+    st.Page(_nsr, title="Network Situation Report Drafter", icon="📝")
+)
 _pages.append(st.Page(_about, title="About", icon="ℹ️"))
 
 _nav = st.navigation(_pages)

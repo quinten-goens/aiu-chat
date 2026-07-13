@@ -4,7 +4,7 @@ The bullet is a continuation of the entity name that the UI prints separately, s
 the model's text must not restate it. The prompt says so; these tests cover the
 model ignoring the prompt, using outputs it actually produced.
 """
-from aiu_chat.nsr.draft import _clean_bullet
+from aiu_chat.nsr.draft import Bullet, _clean_bullet
 
 
 def test_leaked_pipe_separator_is_stripped():
@@ -69,3 +69,28 @@ def test_an_opening_word_is_not_mistaken_for_an_icao_code():
     assert _clean_bullet(text, "Nice") == text
     text2 = "faced delays due to staffing."
     assert _clean_bullet(text2, "Vienna") == text2
+
+
+def _bullet(text, name="Nice"):
+    return Bullet(name=name, kind="airport", rank=1, delay_per_flight=1.0,
+                  text=_clean_bullet(text, name))
+
+
+def test_verb_openings_read_as_a_continuation():
+    for opener in ("recorded", "faced", "experienced", "suffered", "saw", "was"):
+        assert _bullet(f"{opener} ATC capacity delays.").reads_as_continuation
+
+
+def test_noun_phrase_opening_is_flagged_not_repaired():
+    # "Belgrade ACC ATC capacity regulations dominated..." reads wrong, but the
+    # fix is to tell the analyst, not to prepend a verb: doing that blindly turns
+    # "EHAM recovered from IT issues" into "saw recovered from IT issues".
+    b = _bullet("ATC capacity regulations dominated the week.", "Belgrade ACC")
+    assert not b.reads_as_continuation
+    assert b.text == "ATC capacity regulations dominated the week."
+
+
+def test_stripping_an_icao_code_leaves_a_valid_continuation():
+    b = _bullet("EHAM recovered from IT issues.", "Amsterdam")
+    assert b.text == "recovered from IT issues."
+    assert b.reads_as_continuation
