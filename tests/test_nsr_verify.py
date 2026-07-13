@@ -71,3 +71,39 @@ def test_finding_reports_its_context(wf):
     finding = verify.check("delay reached 9.9 min/flight", wf)[0]
     assert finding.literal == "9.9"
     assert "min/flight" in finding.context
+
+
+def test_a_number_the_analyst_supplied_is_accepted(wf):
+    # The published reports carry figures no feed has ("and 23 diversions"). An
+    # analyst who typed that verified it, so the gate must not flag the one number
+    # a human explicitly vouched for.
+    prose = "suffered thunderstorms. A drone sighting caused 23 diversions."
+    notes = "Drone sighting Saturday; 23 diversions per ops report."
+    assert verify.check(prose, wf, also_allowed=notes) == []
+
+
+def test_a_number_the_analyst_did_not_supply_is_still_caught(wf):
+    # Notes widen the allowlist; they do not disable the gate. The model cannot
+    # mint a figure and pass it off as something a human said.
+    prose = "A drone sighting caused 47 diversions."
+    notes = "Drone sighting Saturday; 23 diversions per ops report."
+    findings = verify.check(prose, wf, also_allowed=notes)
+    assert [f.literal for f in findings] == ["47"]
+
+
+def test_notes_do_not_widen_the_gate_when_absent(wf):
+    findings = verify.check("caused 23 diversions.", wf)
+    assert [f.literal for f in findings] == ["23"]
+
+
+def test_a_figure_spelled_out_in_words_is_caught(wf):
+    # The model writes "twenty-three diversions" when asked for a count, which
+    # walks straight past a numeral scanner. A figure in words is still a figure.
+    findings = verify.check("caused twenty-three diversions.", wf,
+                            also_allowed="23 diversions per ops report.")
+    assert [f.literal for f in findings] == ["twenty-three"]
+    assert "digits" in findings[0].context
+
+
+def test_ordinary_prose_is_not_mistaken_for_a_spelled_figure(wf):
+    assert verify.check("faced delays throughout the week.", wf) == []

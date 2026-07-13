@@ -26,6 +26,18 @@ _NUMBER = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 _WEEK_REF = re.compile(r"\bW\d{1,2}\b")
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 
+# A figure spelled out in words is still a figure, and it walks straight past a
+# numeral scanner -- the model really does write "twenty-three diversions" when
+# asked for a count. Catching the shape is enough: the gate flags it, the analyst
+# rewrites it in digits, and it is then checked like any other number.
+_SPELLED = re.compile(
+    r"\b(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[- ]"
+    r"(?:one|two|three|four|five|six|seven|eight|nine))?"
+    r"|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen"
+    r"|nineteen|hundred|thousand)\b",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class Finding:
@@ -63,12 +75,20 @@ def _canon(literal: str) -> str:
     return re.sub(r"[,%+]|pp\b", "", literal).strip()
 
 
-def check(prose: str, facts: WeekFacts) -> list[Finding]:
+def check(prose: str, facts: WeekFacts, *, also_allowed: str = "") -> list[Finding]:
     """Every numeral in `prose` that is not one of `facts`.
 
     Week labels and years are skipped -- they are references, not measurements.
+
+    `also_allowed` is free text whose numerals are additionally permitted: the
+    analyst's own notes. The published reports carry figures no feed has ("and 23
+    diversions"), and an analyst who typed that number verified it -- so the gate
+    must accept it, or it would flag the one thing a human explicitly vouched for.
+    It still only accepts numbers that appear *somewhere* in the notes; the model
+    cannot mint a new one and claim a human said it.
     """
     allowed = _allowed(facts)
+    allowed |= {_canon(m.group(0)) for m in _NUMBER.finditer(also_allowed)}
     masked = _YEAR.sub(" ", _WEEK_REF.sub(" ", prose))
 
     findings: list[Finding] = []
@@ -80,6 +100,15 @@ def check(prose: str, facts: WeekFacts) -> list[Finding]:
         start, end = max(0, m.start() - 30), min(len(masked), m.end() + 30)
         findings.append(Finding(literal=literal,
                                 context=masked[start:end].replace("\n", " ").strip()))
+
+    for m in _SPELLED.finditer(masked):
+        start, end = max(0, m.start() - 30), min(len(masked), m.end() + 30)
+        findings.append(Finding(
+            literal=m.group(0),
+            context=(masked[start:end].replace("\n", " ").strip()
+                     + "  [figure written in words — rewrite it in digits so it "
+                       "can be checked]"),
+        ))
     return findings
 
 

@@ -977,8 +977,12 @@ except Thursday". NEVER a calendar date ("28 May") and NEVER a clock time \
 or airports; ignore them entirely.
 - Aviation shorthand, plainly: CB = cumulonimbus, TS = thunderstorm, LVP = \
 low-visibility procedures, WIP = work in progress, TWY = taxiway.
-- State NO figures: no minutes, percentages, flight counts or times. Causes only.
-- Invent nothing absent from the excerpts.
+- State NO figures: no minutes, percentages, flight counts or times. Causes only. \
+The ONE exception: a count an analyst note explicitly gives you (e.g. a number of \
+diversions) may be used, because a person verified it. Write any such count in \
+DIGITS exactly as the note gives it ("23 diversions", never "twenty-three").
+- Invent nothing absent from the excerpts and the analyst notes. Those two are \
+your only sources; between them, the analyst notes win.
 
 Output the bullet text and NOTHING else — no name, no brackets, no separator, no \
 preamble, no trailing commentary.
@@ -997,8 +1001,22 @@ Week: {week} ({span})
 
 NOP excerpts for this entity this week:
 {excerpts}
-
+{notes}
 Write the bullet."""
+
+# The analyst knows things no feed carries -- a TTMS trial, a diversion count, a
+# system transition. Their notes are evidence like any other, and rank above NOP
+# because a person looked at it: NOP shows Zurich's "ATC Equipment (Dep/Arr
+# sequencer issues)" where the published report named the TTMS trial.
+NSR_BULLET_NOTES = """
+Analyst notes for this entity (authoritative — a person verified these; use them
+and prefer them over the NOP excerpts where they conflict):
+{notes}
+
+Reproduce any count from these notes in DIGITS, exactly as written above: write
+"23 diversions", never "twenty-three diversions". A figure spelled out in words
+cannot be checked against the data and will be rejected.
+"""
 
 
 NSR_HEADLINE_SYSTEM = """\

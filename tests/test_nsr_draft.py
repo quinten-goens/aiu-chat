@@ -94,3 +94,19 @@ def test_stripping_an_icao_code_leaves_a_valid_continuation():
     b = _bullet("EHAM recovered from IT issues.", "Amsterdam")
     assert b.text == "recovered from IT issues."
     assert b.reads_as_continuation
+
+
+def test_bracketed_appositive_after_the_name_is_stripped():
+    # "Zurich [LSZH, Zurich Airport] experienced..." -- seen once analyst notes
+    # were in play.
+    got = _clean_bullet("[LSZH, Zurich Airport] experienced ATC equipment failures.",
+                        "Zurich")
+    assert got == "experienced ATC equipment failures."
+
+
+def test_notes_are_carried_on_the_bullet():
+    b = Bullet(name="Munich", kind="airport", rank=6, delay_per_flight=2.18,
+               text="suffered thunderstorms.", notes="23 diversions.")
+    assert b.has_notes
+    assert not Bullet(name="Nice", kind="airport", rank=1,
+                      delay_per_flight=1.0, text="saw delays.").has_notes

@@ -43,10 +43,15 @@ class Bullet:
     evidence: list[causes.Evidence] = field(default_factory=list)
     grounded: bool = True
     suggestion: str | None = None      # unverified; analyst accepts or rejects
+    notes: str = ""                    # analyst-supplied evidence, authoritative
 
     @property
     def source_ids(self) -> list[str]:
         return [e.message_id for e in self.evidence]
+
+    @property
+    def has_notes(self) -> bool:
+        return bool(self.notes.strip())
 
     @property
     def reads_as_continuation(self) -> bool:
@@ -128,6 +133,25 @@ class Draft:
         return parse_headline(self.headline)
 
     @property
+    def analyst_notes(self) -> str:
+        """Every note the analyst supplied, as one block of allowed evidence."""
+        return "\n".join(b.notes for b in self.bullets if b.notes.strip())
+
+    def reverify(self, prose: str | None = None) -> list[verify.Finding]:
+        """Re-run the gate and store the result.
+
+        One code path for all three moments a draft can change -- built, a bullet
+        rewritten, edited in the browser -- so the verdict cannot drift out of step
+        with the text. Pass `prose` to check the analyst's edited version instead
+        of the model's.
+        """
+        if prose is None:
+            prose = "\n".join([self.headline] + [b.text for b in self.bullets])
+        self.findings = verify.check(prose, self.facts,
+                                     also_allowed=self.analyst_notes)
+        return self.findings
+
+    @property
     def title(self) -> str:
         return (f"Network situation (Week {self.week.iso_week}: "
                 f"{self.week.span_text()})")
@@ -202,11 +226,21 @@ def _write_headline(wf: WeekFacts, session: requests.Session, client) -> str:
     return client.chat(msgs, temperature=0.0).strip()
 
 
-def _write_bullet(ec: causes.EntityCauses, week: Week, client) -> Bullet:
-    """One bullet, written only from that entity's NOP excerpts."""
+def write_bullet(ec: causes.EntityCauses, week: Week, client=None, *,
+                 notes: str = "", temperature: float = 0.2) -> Bullet:
+    """One bullet, written from that entity's NOP excerpts and the analyst's notes.
+
+    Public because the UI regenerates bullets one at a time: a single weak
+    sentence should not cost a whole report. `temperature` is raised on a rewrite
+    so a retry actually explores instead of reproducing the same words.
+    """
+    client = client or build_client()
     excerpts = "\n".join(
         f"  [{e.date:%a %d %b}] {e.excerpt}" for e in ec.evidence
     ) or "  (none)"
+    notes_block = (
+        prompts.NSR_BULLET_NOTES.format(notes=_indent(notes)) if notes.strip() else ""
+    )
 
     msgs = [
         Message("system", prompts.NSR_BULLET_SYSTEM),
@@ -216,9 +250,10 @@ def _write_bullet(ec: causes.EntityCauses, week: Week, client) -> Bullet:
             week=week.label,
             span=week.span_text(),
             excerpts=excerpts,
+            notes=notes_block,
         )),
     ]
-    raw = client.chat(msgs, temperature=0.2).strip()
+    raw = client.chat(msgs, temperature=temperature).strip()
 
     # A SUGGESTION is only meaningful when the model had nothing to go on, but it
     # will sometimes append one to a perfectly good bullet. Split it off wherever
@@ -229,12 +264,19 @@ def _write_bullet(ec: causes.EntityCauses, week: Week, client) -> Bullet:
         suggestion = m.group(1).strip()
         raw = raw[:m.start()].strip()
 
-    grounded = not raw.upper().startswith("INSUFFICIENT")
-    text = "" if not grounded else _clean_bullet(raw, ec.name)
+    # With analyst notes in hand the model is never truly without evidence, so an
+    # INSUFFICIENT reply is only meaningful when nobody has told it anything.
+    grounded = not raw.upper().startswith("INSUFFICIENT") or bool(notes.strip())
+    text = _clean_bullet(raw, ec.name) if not raw.upper().startswith("INSUFFICIENT") else ""
 
     return Bullet(name=ec.name, kind=ec.kind, rank=ec.rank,
                   delay_per_flight=ec.delay_per_flight, text=text,
-                  evidence=ec.evidence, grounded=grounded, suggestion=suggestion)
+                  evidence=ec.evidence, grounded=grounded, suggestion=suggestion,
+                  notes=notes)
+
+
+def _indent(text: str) -> str:
+    return "\n".join(f"  - {ln.strip()}" for ln in text.strip().split("\n") if ln.strip())
 
 
 def _clean_bullet(text: str, name: str) -> str:
@@ -264,7 +306,10 @@ def _clean_bullet(text: str, name: str) -> str:
     # `[A-Z]{4}` swallows the opening verb of every bullet ("saw ...", "faced ...").
     pattern = re.compile(
         rf"^\s*(?:(?i:\[?\s*{stem}(?:\s+(?:airport|ACC|UAC))?\s*\]?\s*(?:\||:|-)?)"
-        rf"|[A-Z]{{4}}(?:/[A-Z]{{4}})*)\s*"
+        rf"|[A-Z]{{4}}(?:/[A-Z]{{4}})*"
+        # A bracketed appositive the model likes to add: "Zurich [LSZH, Zurich
+        # Airport] experienced ...".
+        rf"|\[[^\]]{{0,60}}\]|\([A-Z]{{4}}[^)]{{0,40}}\))\s*,?\s*"
     )
     for _ in range(4):
         stripped = pattern.sub("", text, count=1)
@@ -275,9 +320,14 @@ def _clean_bullet(text: str, name: str) -> str:
 
 
 def build(week: Week | None = None, *, session: requests.Session | None = None,
-          client=None) -> Draft:
-    """Draft the report for `week` (default: the week that just ended)."""
+          client=None, notes: dict[str, str] | None = None) -> Draft:
+    """Draft the report for `week` (default: the week that just ended).
+
+    `notes` maps an entity name to analyst-supplied evidence, which is passed to
+    the model alongside that entity's NOP excerpts and outranks them.
+    """
     week = week or facts.last_complete_week()
+    notes = notes or {}
     own = session is None
     session = session or requests.Session()
     client = client or build_client()
@@ -300,20 +350,41 @@ def build(week: Week | None = None, *, session: requests.Session | None = None,
             sink = enroute if ec.kind == "acc" else airport
             if len(sink) >= BULLETS:
                 continue
-            # An entity with no NOP evidence at all cannot be written about
-            # honestly; skip it rather than let the model improvise.
-            if not ec.grounded:
+            note = notes.get(ec.name, "")
+            # No NOP evidence and nothing from the analyst either: there is no
+            # honest bullet to write, so skip rather than let the model improvise.
+            if not ec.grounded and not note.strip():
                 continue
-            sink.append(_write_bullet(ec, week, client))
+            sink.append(write_bullet(ec, week, client, notes=note))
 
         draft = Draft(week=week, facts=wf, headline=headline,
                       enroute=enroute, airport=airport)
-
-        # The gate: every numeral in the prose must trace back to a fact. The
-        # bullets are meant to carry no figures at all, so they are checked too.
-        prose = "\n".join([draft.headline] + [b.text for b in draft.bullets])
-        draft.findings = verify.check(prose, wf)
+        draft.reverify()
         return draft
+    finally:
+        if own:
+            session.close()
+
+
+def entity_evidence(week: Week, *, session: requests.Session | None = None,
+                    ) -> dict[str, causes.EntityCauses]:
+    """Every candidate entity for `week`, with its NOP evidence, keyed by name.
+
+    Lets the UI offer a notes box (and a rewrite) for entities the drafter left
+    out -- an analyst may know why an unranked airport mattered.
+    """
+    own = session is None
+    session = session or requests.Session()
+    try:
+        wf = facts.collect(week, session=session)
+        entities = [
+            (r["name"], "acc", r["rankNumber"], r.get("avgValue"), r.get("value"))
+            for r in wf.acc_ranking[:CANDIDATES]
+        ] + [
+            (r["name"], "airport", r["rankNumber"], r.get("avgValue"), r.get("value"))
+            for r in wf.airport_ranking[:CANDIDATES]
+        ]
+        return {ec.name: ec for ec in causes.collect(week, entities, session=session)}
     finally:
         if own:
             session.close()

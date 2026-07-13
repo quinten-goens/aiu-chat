@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import hashlib
 import io
 import re
 
@@ -23,7 +24,6 @@ from streamlit_quill import st_quill
 
 from aiu_chat.nsr import draft as nsr_draft
 from aiu_chat.nsr import facts as nsr_facts
-from aiu_chat.nsr import verify as nsr_verify
 from aiu_chat.sources import dataapp
 
 _HISTORY_WEEKS = 13
@@ -97,9 +97,13 @@ def _render_provenance(d: nsr_draft.Draft) -> None:
     )
 
     st.divider()
-    st.caption("Every bullet, and the NOP tactical updates it was written from.")
+    st.caption(
+        "Every bullet, the NOP updates it was written from, and a place to add "
+        "what NOP does not know."
+    )
     for b in d.bullets:
-        with st.expander(f"{b.name} — {len(b.evidence)} NOP excerpt(s)"):
+        marks = " 📝" if b.has_notes else ""
+        with st.expander(f"{b.name} — {len(b.evidence)} NOP excerpt(s){marks}"):
             if b.delay_per_flight is not None:
                 st.markdown(
                     f"**Rank {b.rank}** by ATFM delay · "
@@ -108,6 +112,67 @@ def _render_provenance(d: nsr_draft.Draft) -> None:
             for e in b.evidence:
                 st.markdown(f"- *{e.date:%a %d %b}* — {e.excerpt}")
                 st.caption(f"NOP message `{e.message_id}`")
+
+            _bullet_controls(d, b)
+
+
+def _bullet_controls(d: nsr_draft.Draft, b: nsr_draft.Bullet) -> None:
+    """Analyst notes, and a rewrite of just this bullet.
+
+    Rewriting one bullet rather than the whole report is the difference between a
+    review loop you use and one you avoid: a single weak sentence should not cost
+    a full redraft.
+    """
+    key = f"note_{d.week.label}_{b.kind}_{b.name}"
+    notes = st.text_area(
+        "Analyst notes — what NOP doesn't know",
+        value=b.notes,
+        key=key,
+        height=80,
+        placeholder=(
+            "e.g. 23 diversions resulted from the Saturday drone sighting; "
+            "the on-going TTMS trial contributed to higher delays."
+        ),
+        help=(
+            "Treated as authoritative evidence and preferred over NOP where they "
+            "conflict — a person verified it. Figures you give here are allowed "
+            "into the prose; figures you don't are still flagged."
+        ),
+    )
+
+    if st.button("↻ Rewrite this bullet", key=f"rw_{key}", width="stretch"):
+        with st.spinner(f"Rewriting {b.name}…"):
+            try:
+                ec = _evidence_for(d.week, b.name)
+                # Warmer than the initial draft: a retry that reproduces the same
+                # sentence is not a retry.
+                new = nsr_draft.write_bullet(ec, d.week, notes=notes,
+                                             temperature=0.6)
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Could not rewrite: {exc}")
+                return
+        sink = d.enroute if b.kind == "acc" else d.airport
+        for i, existing in enumerate(sink):
+            if existing.name == b.name:
+                sink[i] = new
+                break
+        d.reverify()
+        st.rerun()
+
+
+@st.cache_data(show_spinner=False)
+def _week_evidence(sunday: dt.date) -> dict:
+    """Every candidate entity's NOP evidence for the week ending `sunday`.
+
+    Cached: rewriting one bullet must not re-fetch and re-scan the whole week's
+    NOP messages, or the per-bullet retry costs as much as a full redraft and
+    stops being worth doing.
+    """
+    return nsr_draft.entity_evidence(nsr_facts.week_of(sunday))
+
+
+def _evidence_for(week: nsr_facts.Week, name: str):
+    return _week_evidence(week.sunday)[name]
 
 
 def _verdict(findings, *, edited: bool) -> None:
@@ -152,17 +217,24 @@ def _render_draft(d: nsr_draft.Draft) -> None:
 
     # Quill is a real WYSIWYG editor and it emits HTML, which is the format the
     # publishing system stores -- so what is reviewed is exactly what is exported.
+    #
+    # The key is a hash of the draft, not just the week: Quill holds its own state
+    # against its key, so a stable key would leave the old sentence on screen after
+    # a bullet is rewritten -- the analyst would see their rewrite ignored.
+    source = d.to_html()
+    digest = hashlib.sha1(source.encode()).hexdigest()[:12]
     edited_html = st_quill(
-        value=d.to_html(),
+        value=source,
         html=True,
         toolbar=[["bold", "italic"], ["link"],
                  [{"list": "ordered"}, {"list": "bullet"}], ["clean"]],
-        key=f"nsr_editor_{d.week.label}",
-    ) or d.to_html()
+        key=f"nsr_editor_{d.week.label}_{digest}",
+    ) or source
 
     plain = nsr_draft.html_to_text(edited_html)
-    changed = _normalise(edited_html) != _normalise(d.to_html())
-    findings = nsr_verify.check(plain, d.facts)
+    changed = _normalise(edited_html) != _normalise(source)
+    # Re-check the *edited* text, through the draft so analyst notes stay allowed.
+    findings = d.reverify(plain)
     _verdict(findings, edited=changed)
 
     st.divider()
@@ -249,20 +321,24 @@ def render() -> None:
     with col2:
         st.metric("Reporting week", week.label, week.span_text())
 
-    if not st.button("Draft this week's report", type="primary"):
+    if st.button("Draft this week's report", type="primary"):
+        with st.spinner("Collecting figures, retrieving NOP evidence, drafting…"):
+            try:
+                st.session_state["nsr_draft"] = nsr_draft.build(week)
+            except Exception as exc:  # noqa: BLE001 - surface it, never paper over it
+                st.error(f"Could not draft this week: {exc}")
+                return
+
+    d = st.session_state.get("nsr_draft")
+    # A draft is kept in session state so a rewritten bullet survives the rerun --
+    # otherwise every interaction would silently redraft the whole report.
+    if d is None or d.week.label != week.label:
         st.info(
             "Numbers come from the Data App weekly (`WK`) aggregates on the "
             f"**{week.sync_date}** sync; causes come from the NOP tactical updates "
             "published during the week. Nothing is generated until you click."
         )
         return
-
-    with st.spinner("Collecting figures, retrieving NOP evidence, drafting…"):
-        try:
-            d = nsr_draft.build(week)
-        except Exception as exc:  # noqa: BLE001 - surface it, never paper over it
-            st.error(f"Could not draft this week: {exc}")
-            return
 
     left, right = st.columns([3, 2])
     with left:
