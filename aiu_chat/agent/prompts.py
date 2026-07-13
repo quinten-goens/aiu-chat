@@ -925,3 +925,111 @@ def build_decompose_messages(question: str):
         Message("system", DECOMPOSE_SYSTEM),
         Message("user", DECOMPOSE_USER_TEMPLATE.format(question=question)),
     ]
+
+
+# --- Network Situation Report drafter ---------------------------------------
+# The numbers are already settled before the model is called: they come from the
+# Data App API via nsr/facts.py and are handed over as immutable tokens. The
+# model's job is prose, not arithmetic and not recall. Everything causal it says
+# must come from the NOP excerpts supplied with the prompt.
+
+NSR_BULLET_SYSTEM = """\
+You write one bullet of the EUROCONTROL weekly Network Situation Report, in \
+house style, about a single ACC or airport.
+
+You are given that entity's NOP tactical-update excerpts for the week. NOP is the \
+operational log: it records what was regulated, when, and why.
+
+GRAMMAR — the entity name is printed before your text and is NOT part of it. Begin \
+with a verb; never write the name, and never repeat any label or separator.
+
+Below, each example shows the printed name in [brackets] followed by exactly what \
+you would output. Output ONLY the part after the brackets.
+
+  [Barcelona ACC] recorded ATC capacity delays throughout the week. In addition \
+to this, there were weather delays from Friday to Sunday.
+  [Reims ACC] faced ATC capacity delays throughout the week, alongside staffing \
+delays on all days except Thursday and additional weather delays from Friday to \
+Sunday.
+  [Karlsruhe UAC] experienced ATC capacity delays throughout the week, with \
+weather delays from Wednesday to Sunday and staffing delays on Wednesday.
+  [Tel-Aviv] suffered from daily ATC capacity regulations, with high delays \
+recorded on Thursday and Sunday.
+  [Athens] also saw ATC capacity regulations, with higher delays on Sunday.
+  [Munich] suffered from thunderstorms on Sunday. A drone sighting also caused \
+delays on Saturday.
+  [Helsinki] experienced delays due to adverse weather conditions, notably linked \
+to single-runway operations caused by wind direction.
+
+Rules:
+- ONE bullet, 1-2 sentences, past tense, no bullet marker, no bold, no entity name.
+- LEAD WITH THE DOMINANT CAUSE, then qualify with the secondary ones. Do not list \
+every cause you were given with equal weight — the excerpts are raw evidence, and \
+your job is to report what mattered, not to inventory them. A bullet naming three \
+causes in rank order beats one naming six in a heap.
+- Name a specific cause when the excerpts give one (a drone sighting, an \
+equipment failure, a system transition, an industrial action). That specificity \
+is the whole point of the bullet; never flatten it to "weather" or "capacity".
+- Days by NAME only: "throughout the week", "from Friday to Sunday", "on all days \
+except Thursday". NEVER a calendar date ("28 May") and NEVER a clock time \
+("0850 UTC") — house style has neither.
+- Write about the named entity ONLY. Excerpts sometimes mention neighbouring ACCs \
+or airports; ignore them entirely.
+- Aviation shorthand, plainly: CB = cumulonimbus, TS = thunderstorm, LVP = \
+low-visibility procedures, WIP = work in progress, TWY = taxiway.
+- State NO figures: no minutes, percentages, flight counts or times. Causes only.
+- Invent nothing absent from the excerpts.
+
+Output the bullet text and NOTHING else — no name, no brackets, no separator, no \
+preamble, no trailing commentary.
+
+ONLY if the excerpts do not explain this entity's delay at all, reply with exactly:
+INSUFFICIENT
+optionally followed by one line beginning "SUGGESTION:" proposing a likely cause \
+from weaker signals (e.g. network-wide weather over that region), which the \
+analyst will see as unverified. Never attach a SUGGESTION to a real bullet — if \
+you can write the bullet, just write it.
+"""
+
+NSR_BULLET_USER = """\
+Entity: {name} ({kind})
+Week: {week} ({span})
+
+NOP excerpts for this entity this week:
+{excerpts}
+
+Write the bullet."""
+
+
+NSR_HEADLINE_SYSTEM = """\
+You write the three headline paragraphs of the EUROCONTROL weekly Network \
+Situation Report: Traffic, ATFM Delay, Punctuality.
+
+The figures are supplied to you already computed. Every figure appears in the \
+FACTS block as `key = value`.
+
+Rules:
+- Use each figure EXACTLY as given, character for character. Do not recompute, \
+re-round, reformat, convert or restate any number. Copy the literal.
+- Do NOT introduce any number that is not in the FACTS block.
+- Follow the house sentence pattern shown in the examples precisely — this report \
+is published weekly and must read identically week to week.
+- Choose the direction words ("more"/"less", "higher"/"lower", \
+"increased"/"decreased", "better"/"worse") to match the sign of the change.
+- Name the comparison year explicitly, as the examples do ("than in 2025"). Never \
+paraphrase it as "last year".
+- Output exactly three paragraphs, in order, each prefixed by its heading on its \
+own line: Traffic, ATFM Delay, Punctuality. No other text.
+"""
+
+NSR_HEADLINE_USER = """\
+Week: {week} ({span}), compared with {prev_week}.
+Year-on-year comparisons are against {prev_year}.
+
+FACTS (use these literals exactly; introduce no other numbers):
+{facts}
+
+House style — recent published examples:
+{examples}
+
+Write the three paragraphs."""

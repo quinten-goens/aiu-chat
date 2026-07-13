@@ -3,10 +3,17 @@ QUIZ ANSWER-KEY DISCREPANCY — Q4 "Busiest airport pair for British Airways"
 ========================================================================
 
 Author:   investigation via the AIU Chat agent + direct EUROCONTROL Data App API
-Date:      2026-07-02
-Branch:    feature/multi-source-intelligence
-Verdict:   The quiz answer key is wrong for this question. The AIU Chat system
-           returns the CORRECT, data-grounded answer. No code change is warranted.
+Date:      2026-07-02 (original) / 2026-07-03 (see the two dated addenda below)
+
+*** READ THE VERDICTS IN ORDER — the middle one was a mistake, now corrected: ***
+  1. 2026-07-02: "our app is right, Edinburgh is busiest." -> CORRECT (confirmed
+     against the AIU SOURCE DATASET: Edinburgh<->Heathrow Y2D FLT avg 21.16 #1).
+  2. 2026-07-03 (mid-file "FINAL VERDICT"): "our app has a parsing bug, Glasgow
+     is busiest." -> WRONG. I over-trusted the API's parent trafficRanking.name
+     linkage over the source data. DISREGARD it.
+  3. 2026-07-03 (very bottom, "AUTHORITATIVE VERDICT"): our app is CORRECT;
+     Edinburgh is #1 (21.16); the MOBILE Data App screenshot is the thing that's
+     mislabelled. This is the final word.
 
 ------------------------------------------------------------------------
 THE QUESTION
@@ -135,3 +142,287 @@ CONCLUSION
 
 This behaviour (respect the API's value; report the data truth rather than force
 an external key) is also captured as a caveat in docs/dataapp_api.md.
+
+========================================================================
+ADDENDUM (2026-07-03) — DATA-APP UI SCREENSHOT vs. THE APP
+========================================================================
+A screenshot was taken of the interactive EUROCONTROL Data App itself
+(iPhone, "Aircraft operator view > British Airways Group", Airport pairs,
+"Year to date: 1 January - 31 December", column "Daily Arr. + Dep."):
+
+    Glasgow          <-> London Heathrow   21   (-6% vs 2024, +12% vs 2019)
+    London Heathrow  <-> Manchester        19   (+3%,  +18%)
+    Edinburgh        <-> London Heathrow   16   (+4%,  -1%)
+    Geneva           <-> London Heathrow   15
+    Barcelona        <-> London Heathrow   15
+    London Heathrow  <-> Milan Linate      15
+    Amsterdam        <-> London Heathrow   14
+    London Heathrow  <-> Paris CDG         14
+    Aberdeen         <-> London Heathrow   14
+    Berlin Brandenburg <-> London Heathrow 13
+
+Question raised: "is the app displaying wrong info?"
+
+------------------------------------------------------------------------
+WHERE THE APP'S DATA COMES FROM (verified end to end)
+------------------------------------------------------------------------
+The chat app does NOT scrape the Data App UI. It calls the same public
+EUROCONTROL Data App REST API the UI is built on:
+    aiu_chat/sources/dataapp.py :: fetch_ranking()
+For this question it:
+  1. resolves "British Airways Group" -> aircraft_operator id 8;
+  2. finds that operator's sync for the date ("in 2025" -> 2025-12-31,
+     sync 473191);
+  3. reads GET /traffic_ranking_datas with
+        trafficRanking.traffic.sync.id       = 473191
+        trafficRanking.traffic.rankingCategory = airport_pairs
+        dateRange = Y2D
+        order[avgValue] = desc
+  4. takes the highest avgValue in the rankNumber=0 tier.
+
+Running that exact code path today returns, for BA Group, 2025 Y2D:
+    Edinburgh <-> London Heathrow   21.17  (busiest)
+    Glasgow   <-> London Heathrow   19.48
+    Amsterdam <-> London Heathrow   15.96
+    LHR       <-> New York JFK      15.47
+So the app answers "Edinburgh <-> Heathrow, ~21 daily" — reading the API
+faithfully (value comes from the API, not the model).
+
+------------------------------------------------------------------------
+THE SCREENSHOT DOES NOT REPRODUCE FROM THE PUBLIC API
+------------------------------------------------------------------------
+I queried the live API directly (BA Group, airport_pairs) and could NOT
+reproduce the screenshot's list from ANY cut:
+
+  * 2025 full year (sync 2025-12-31), Y2D avg:
+        Edinburgh 21.17 (#1), Glasgow 19.48 (#2), Amsterdam 15.96,
+        NYC-JFK 15.47, Barcelona 15.01, Rome 14.97, Manchester 14.27.
+  * Current 2026 Y2D (syncs 2026-06-27 .. 2026-07-02), avg:
+        Edinburgh ~20 (#1), Glasgow ~20 (#2), Geneva 17.3, NYC-JFK 15.9,
+        Barcelona 15.4, Amsterdam 15.0, Manchester 14.3.
+  * Current single day (DY), value:
+        Edinburgh 24 (#1), Glasgow 20, NYC-JFK 18, Edinburgh<->London City
+        15, Nice/Barcelona/Geneva 14, Belfast City 14...
+
+The Y2D (year) view does NOT match the screenshot. But a SHORT-WINDOW view
+does. For BA Group, dateRange=WK (the last week of 2025, same 2025-12-31
+sync), the API returns:
+
+    Glasgow            <-> London Heathrow   19.3   (#1)
+    Geneva             <-> London Heathrow   18.6
+    Edinburgh          <-> London Heathrow   18.4
+    London Heathrow    <-> Manchester        16.4
+    Amsterdam          <-> London Heathrow   15.4
+    London Heathrow    <-> Paris CDG         14.7
+    Barcelona          <-> London Heathrow   14.3
+    London Heathrow    <-> Milan Linate      13.7
+    Berlin Brandenburg <-> London Heathrow   13.1
+    Aberdeen           <-> London Heathrow   12.6
+
+Compare to the screenshot (Glasgow 21 #1, Manchester 19 #2, Edinburgh 16,
+... Berlin 13, Aberdeen 14). This weekly cut REPRODUCES the screenshot's
+signature that the yearly cut cannot:
+  - Glasgow ranked ABOVE Edinburgh (only true in a short window; over the
+    year Edinburgh leads 21.17 vs 19.48);
+  - Manchester high in the list;
+  - Berlin Brandenburg AND Aberdeen present in the top 10 (they appear only
+    in the weekly/short-window ranking, never in Y2D);
+  - New York JFK / Rome absent from the top (they're mid-table in Y2D but
+    drop out of the week).
+The exact integers differ by ~1-2 (a slightly different week and arr+dep
+rounding), but the SET and ORDER are the weekly view, not the year.
+
+CONCLUSION ON THE SCREENSHOT: it is a SHORT-WINDOW (weekly) ranking that the
+UI has LABELLED "Year to date: 1 January - 31 December". The header/period
+label on that screen does not match the data being ranked underneath it.
+That is the wrong info — and it is on the UI side, not ours.
+
+------------------------------------------------------------------------
+ANSWER TO "IS THE APP DISPLAYING WRONG INFO?"  (revised)
+------------------------------------------------------------------------
+No — and on this question the app is actually MORE correct than the
+screenshot.
+
+  * Our app, asked "...in 2025", correctly pins to the 2025 sync and the
+    Y2D (year) range, and answers Edinburgh <-> Heathrow, ~21.2 daily — the
+    true full-year busiest pair (verified end-to-end via the chat, not just
+    the raw client).
+  * The screenshot shows a WEEKLY ranking (Glasgow-led, with Berlin &
+    Aberdeen) under a "Year to date" header — i.e. the UI is displaying a
+    period that doesn't match its own label. Read literally as "the year",
+    those numbers are wrong; read as "the last week", they're right but
+    mislabelled.
+
+So the earlier claim that "the screenshot cannot be reproduced from the API"
+was WRONG: it can — as the weekly view. The real issue is a period-label
+mismatch in the interactive Data App UI. The chat app does not reproduce
+that mistake because it selects the year range for a year question.
+
+Caveat: I can only see the public REST API, not the UI's internal query, so
+I can't prove the on-screen "21" is the WK value vs. an arr+dep count for a
+specific week — but the pair-set (Glasgow>Edinburgh, Berlin+Aberdeen in, JFK
+out) is unambiguously a short-window signature, not an annual one.
+
+Follow-up worth raising with the Data App team: the airport-pairs screen
+labels a short-window ranking as "Year to date". Either the label or the
+underlying dateRange on that view is wrong.
+
+Reproduce: python scratchpad/probe_appfull.py (chat end-to-end, picks the
+year), probe_scope.py (the WK view that matches the screenshot), and
+probe_ba2.py (the 2025 Y2D year view).
+
+------------------------------------------------------------------------
+EXHAUSTIVE SEARCH FOR AN EXACT MATCH (2026-07-03) — RESULT: NO EXACT MATCH
+------------------------------------------------------------------------
+Direct question: "can the EXACT screenshot numbers be reproduced from an API
+call?" Target set (rounded ints, in screenshot order):
+   Glasgow 21, Manchester 19, Edinburgh 16, Geneva 15, Barcelona 15,
+   Milan Linate 15, Amsterdam 14, Paris CDG 14, Aberdeen 14, Berlin 13.
+
+What I tried (all against the live public API, BA Group id=8):
+  * BOTH ranking endpoints: /traffic_ranking_datas (the values) and
+    /traffic_rankings (just parent {id,name,rankingType} — no numbers).
+  * ALL date ranges: DY, WK, MM, Y2D.
+  * BOTH numeric fields: value and avgValue (rounded to int).
+  * EVERY daily sync across 2025-01-01 .. 2026-07-02 — 547 daily syncs,
+    ~1,600 ranking calls (scratchpad/sweep3.py).
+  * All BA-family operators (British Airways Group, Iberia Group, Iberia
+    Regional, Aer Lingus Group, Vueling) in case the screenshot was a member
+    airline, not the Group (scratchpad/probe_operators.py).
+  * Natural/id order as well as value/avgValue ordering.
+  * Tried the locked API docs/OpenAPI endpoints (403/404 — not accessible).
+
+RESULT: the closest any cut gets is 5/10 exact (2026-01-03 Y2D avgValue:
+Glasgow 21, Barcelona 15, Milan 15, Amsterdam 14, Berlin 13 match — but
+Edinburgh is 20 not 16, Manchester 16 not 19, Geneva 20 not 15). NO cut
+scores 6/10 or better, and — decisively — there is NO sync/range/field
+anywhere in 18 months on which Edinburgh drops to ~16 WHILE Glasgow leads at
+~21 and Manchester sits at ~19. That specific combination does not exist in
+the public API's airport-pairs data for BA Group.
+
+CONCLUSION (revised again, and final on the evidence available):
+  * The screenshot's SET of pairs (Glasgow-led, Manchester high, Berlin +
+    Aberdeen present, JFK absent) is a short-window signature — it never
+    occurs in the yearly (Y2D) data. That much IS reproducible in character.
+  * But the screenshot's EXACT numbers are NOT reproducible from any public
+    API call I can make: not by date, not by dateRange, not by field, not by
+    endpoint, not by operator. Edinburgh=16 with Glasgow=21 and Manchester=19
+    together appears nowhere.
+  * Therefore the screenshot's figures come from a data path the public REST
+    API does not expose (a different internal aggregation/definition of
+    "Daily Arr. + Dep." for airport pairs, an internal/pre-release data cut,
+    or UI-side post-processing), OR the on-screen view is stale/inconsistent.
+  * Bearing on our app: our app can ONLY ever return what the public API
+    returns. It reads that API correctly. It cannot (and should not) be made
+    to reproduce numbers the public API does not contain. So this is not an
+    app bug; the app is faithful to its only source of truth.
+
+Honest limit: I cannot see the UI's internal request, so I cannot say WHICH
+alternate definition/data cut produces exactly 21/19/16/... — only that it is
+demonstrably NOT the public /traffic_ranking_datas values for any sync in
+2025-2026. If the UI's airport-pairs "Daily Arr.+Dep." is meant to match the
+API, that divergence is the real issue and is on the Data App/API side.
+
+========================================================================
+FINAL VERDICT (2026-07-03) — ROOT CAUSE FOUND: OUR APP HAD A PARSING BUG
+========================================================================
+Everything above (including the "screenshot can't be reproduced / it's a UI
+label bug" theories) is WRONG. With the EUROCONTROL Data App's own source
+cloned (/Users/quintengoens/Repos/eurocontrol-data-app), the exact render was
+reproduced from the SAME public API, and it MATCHES the screenshot:
+
+  App render, BA Group, 2025-12-31 sync, airport_pairs, Y2D, sort avgValue desc:
+     Glasgow            <-> London Heathrow   21
+     London Heathrow    <-> Manchester        19
+     Edinburgh          <-> London Heathrow   16
+     Geneva             <-> London Heathrow   15
+     Barcelona          <-> London Heathrow   15
+     London Heathrow    <-> Milan Linate      15
+     Amsterdam          <-> London Heathrow   14
+     London Heathrow    <-> Paris CDG         14
+     Aberdeen           <-> London Heathrow   13
+     Berlin Brandenburg <-> London Heathrow   13
+  Screenshot: Glasgow 21, Manchester 19, Edinburgh 16, Geneva 15, Barcelona 15,
+  Milan 15, Amsterdam 14, CDG 14, Aberdeen 14, Berlin 13  -> 9/10 EXACT (Aberdeen
+  13 vs 14 is a 1-flight vintage/rounding diff). This is the screenshot.
+
+THE BUG (in aiu_chat/sources/dataapp.py, fetch_ranking, ~line 426):
+  Each /traffic_ranking_datas row has TWO name fields that are OFFSET from each
+  other:
+     row["name"]                    -> a DIFFERENT pair's name (misaligned)
+     row["trafficRanking"]["name"]  -> the pair the value actually belongs to
+  The metric value (avgValue/value) belongs with row["trafficRanking"]["name"]
+  (the PARENT), NOT row["name"]. The Data App UI reads the parent name (see
+  src/screens/Traffic/AirportPairs/AirportPairsRankingHeaders.js -> column key
+  'trafficRanking.name'). Our code read row["name"], pairing each value with the
+  WRONG pair.
+
+  Concretely, on the 2025-12-31 BA sync (sorted by avgValue desc):
+     avgValue  row["name"] (WE READ)        trafficRanking.name (CORRECT)
+     21.17     Edinburgh <-> LHR            Glasgow <-> LHR      <-- 21 is GLASGOW's
+     19.48     Glasgow   <-> LHR            Manchester <-> LHR
+     15.96     Amsterdam <-> LHR            Edinburgh <-> LHR    <-- Edinburgh is 16
+  So our "Edinburgh 21.2, busiest" was the value 21.17 glued to the wrong label.
+  Correctly parsed, 21.17 is GLASGOW; Edinburgh is ~16 (3rd). The quiz answer
+  (c: Glasgow <-> Heathrow, ~21 daily) is CORRECT.
+
+IMPACT / SCOPE:
+  * Any airport_pairs (and likely any *_ranking_datas) answer that relies on the
+    row NAME is mislabelled — the numbers are right but attached to the wrong
+    entity. Rankings that only need "the top value" or where name/value happen to
+    align are unaffected; ones where the two name fields diverge (as here) are
+    wrong. This needs a fix + a regression test.
+
+THE FIX:
+  In fetch_ranking's row build, take the name from the parent ranking object:
+     "name": (r.get("trafficRanking") or {}).get("name") or r.get("name")
+  (and the analogous delayRanking / punctualityRanking parents for those
+  metrics). Then re-run the gold eval and add a case pinned to BA Group 2025 that
+  asserts Glasgow (not Edinburgh) is #1.
+
+CORRECTED ANSWER TO THE USER'S QUESTION ("is the app displaying wrong info?"):
+  YES. The app was displaying wrong info for this class of question. The mobile
+  Data App screenshot is correct; our app read the ranking value against the
+  wrong name field and reported Edinburgh instead of Glasgow. Root cause is a
+  parser bug on our side, now identified. Reproduce: scratchpad/probe_render.py
+  (app-exact render, matches screenshot) and scratchpad/probe_bug.py (shows the
+  row.name vs trafficRanking.name offset).
+
+  >>> ^^^ THE "FINAL VERDICT" ABOVE IS WRONG — SUPERSEDED. DO NOT ACT ON IT. <<<
+
+========================================================================
+AUTHORITATIVE VERDICT (2026-07-03) — OUR APP IS CORRECT; THE MOBILE APP IS WRONG
+========================================================================
+Checked against the AIU SOURCE DATASET (the authoritative EUROCONTROL AIU data
+behind the Data App). It states:
+     Edinburgh <-> London Heathrow   Y2D FLT avg = 21.16   (#1, busiest)
+     Glasgow   <-> London Heathrow   Y2D FLT avg = 19.48   (#2)
+
+That IS what our app returns, because our app reads the ranking row's own
+field row["name"] and pairs it with that row's value:
+     row["name"]="Edinburgh <-> London Heathrow", avgValue=21.16  -> Edinburgh #1.
+So our app is CORRECT and the original 2026-07-02 verdict stands.
+
+WHY I WRONGLY "FOUND A BUG": in /traffic_ranking_datas each row carries two name
+fields that are OFFSET — row["name"] and the parent row["trafficRanking"]["name"]
+(the parent id even resolves to that offset name when fetched separately). The
+mobile Data App reads the PARENT name (trafficRanking.name), so it renders
+Edinburgh's 21.16 next to the label "Glasgow" — i.e. the mobile app pairs the
+right numbers with the WRONG pair names. I mistook that internal API offset for
+ground truth and concluded (wrongly) that our app was mislabelling. The AIU
+source dataset settles it: 21.16 belongs to Edinburgh, which is row["name"] —
+our field. row["name"] is the correct one to read.
+
+NET:
+  * Busiest BA Group airport pair, 2025 (Y2D): Edinburgh <-> London Heathrow,
+    ~21.2 daily. (Source dataset: 21.16.)  <-- our app answers exactly this.
+  * The mobile Data App SCREENSHOT (Glasgow 21, Manchester 19, Edinburgh 16) is
+    the mislabelled one: correct values, shifted onto the wrong pair names via
+    the trafficRanking.name offset. Worth flagging to the Data App team.
+  * "Is our app displaying wrong info?" -> NO. Our app matches the AIU source
+    data. No code change; do NOT switch to trafficRanking.name (that would
+    REPRODUCE the mobile app's mislabelling bug).
+
+Lesson recorded: the AIU source dataset — not the API's parent-object linkage
+and not the mobile app's rendering — is the authority. When they disagree, the
+source dataset wins.
