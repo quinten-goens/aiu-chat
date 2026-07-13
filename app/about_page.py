@@ -32,6 +32,14 @@ def _mermaid(diagram: str, *, height: int = 480) -> None:
 
 
 def render():
+    # The app runs layout="wide" for the NSR drafter's columns. This page is
+    # mostly explanatory prose, which reads badly across a full ultrawide line, so
+    # hold it to a comfortable measure -- wider than chat, because the diagrams
+    # need the room.
+    st.markdown(
+        "<style>.block-container { max-width: 64rem; }</style>",
+        unsafe_allow_html=True,
+    )
     st.title("ℹ️ About Aviation Intelligence Chat")
     st.caption(
         "A hybrid AI assistant for European air navigation performance data — "

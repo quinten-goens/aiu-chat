@@ -56,7 +56,10 @@ def _nsr():
 
     nsr_page.render()
 
-st.set_page_config(page_title="Aviation Intelligence + Chat", page_icon="✈️", layout="centered")
+# Wide, because set_page_config is app-wide and one-shot: the NSR drafter needs
+# the width for its draft/provenance columns. The chat page reads badly at full
+# ultrawide, so it constrains its own column back to a readable measure below.
+st.set_page_config(page_title="Aviation Intelligence + Chat", page_icon="✈️", layout="wide")
 
 # EUROCONTROL logo at the very top of the sidebar, above the page menu.
 _LOGO_PATH = str(Path(__file__).parent / "assets" / "eurocontrol-logo.svg")
@@ -93,8 +96,12 @@ LOGGING_NOTICE = (
 # A small, scoped style refresh (kept minimal so it survives Streamlit updates).
 _CSS = """
 <style>
-/* Tighten the top padding so the header sits higher. */
-.block-container { padding-top: 2.2rem; }
+/* Tighten the top padding so the header sits higher.
+   The app is set to layout="wide" (one-shot and app-wide) because the NSR
+   drafter needs the room for its draft/provenance columns. Chat does not: long
+   prose across an ultrawide monitor is genuinely hard to read, so this page
+   holds itself to a comfortable measure while still centring. */
+.block-container { padding-top: 2.2rem; max-width: 52rem; }
 
 /* Gradient header banner. */
 .aiu-header {
