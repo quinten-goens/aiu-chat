@@ -15,6 +15,9 @@ dependencies = [
     # streamlit-mermaid pins altair<5; keep it explicit so a fresh install
     # resolves deterministically (the app charts with Plotly, so this is safe).
     "altair<5",
+    # WYSIWYG editor for the NSR drafter. Emits HTML directly, which is the format
+    # the publishing system stores, so what the analyst reviews is what is exported.
+    "streamlit-quill>=0.0.3",
     "plotly>=5.22.0",
     "pandas>=2.0.0",
     "sqlglot>=25.0.0",        # parse/validate LLM-generated SQL (read-only enforcement)

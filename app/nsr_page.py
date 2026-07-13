@@ -10,15 +10,20 @@ it in seconds and publish, or see immediately where it is thin.
 """
 from __future__ import annotations
 
+import csv
 import datetime as dt
+import io
+import re
 
 import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+from streamlit_quill import st_quill
 
 from aiu_chat.nsr import draft as nsr_draft
 from aiu_chat.nsr import facts as nsr_facts
+from aiu_chat.nsr import verify as nsr_verify
 from aiu_chat.sources import dataapp
 
 _HISTORY_WEEKS = 13
@@ -105,43 +110,121 @@ def _render_provenance(d: nsr_draft.Draft) -> None:
                 st.caption(f"NOP message `{e.message_id}`")
 
 
-def _render_draft(d: nsr_draft.Draft) -> None:
-    st.subheader(f"Draft — Network situation (Week {d.week.iso_week}: {d.week.span_text()})")
-
-    if d.clean:
+def _verdict(findings, *, edited: bool) -> None:
+    """The gate's verdict, on whatever text is currently in the editor."""
+    scope = "after your edits" if edited else "as drafted"
+    if not findings:
         st.success(
-            "Verified: every number in this draft traces back to an executed query."
+            f"Verified {scope}: every number traces back to an executed query.",
+            icon="✅",
         )
-    else:
-        st.error(
-            f"{len(d.findings)} number(s) in this draft do **not** trace back to the "
-            "data. Do not publish without checking them."
-        )
-        for f in d.findings:
-            st.markdown(f"- `{f.literal}` — …{f.context}…")
+        return
+    st.error(
+        f"{len(findings)} number(s) {scope} do **not** trace back to the data. "
+        "Do not publish without checking them.",
+        icon="🚩",
+    )
+    for f in findings:
+        st.markdown(f"- `{f.literal}` — …{f.context}…")
 
-    st.markdown(d.headline)
 
-    for label, bullets in (("**For en-route ATFM delay:**", d.enroute),
-                           ("**For airport ATFM delay:**", d.airport)):
-        st.markdown(label)
-        for b in bullets:
-            st.markdown(f"- **{b.name}** {b.text}")
-            if not b.reads_as_continuation:
-                st.caption(
-                    f"✏️ {b.name}: this bullet does not continue the name "
-                    "grammatically — reword its opening before publishing."
-                )
-            if b.suggestion:
-                st.warning(
-                    f"Unverified suggestion for {b.name} — not supported by NOP, "
-                    f"accept or reject: {b.suggestion}",
-                    icon="⚠️",
-                )
+def _render_draft(d: nsr_draft.Draft) -> None:
+    st.subheader(f"Draft — {d.title}")
+
+    for b in d.bullets:
+        if not b.reads_as_continuation:
+            st.caption(
+                f"✏️ **{b.name}**: this bullet does not continue the name "
+                "grammatically — reword its opening."
+            )
+        if b.suggestion:
+            st.warning(
+                f"**{b.name}** — unverified suggestion, not supported by NOP. "
+                f"Accept or reject: {b.suggestion}",
+                icon="⚠️",
+            )
+
+    st.caption(
+        "Edit below. The report is checked again against the data every time you "
+        "change it, so the verdict always describes the text you are about to "
+        "publish — not the one the model first wrote."
+    )
+
+    # Quill is a real WYSIWYG editor and it emits HTML, which is the format the
+    # publishing system stores -- so what is reviewed is exactly what is exported.
+    edited_html = st_quill(
+        value=d.to_html(),
+        html=True,
+        toolbar=[["bold", "italic"], ["link"],
+                 [{"list": "ordered"}, {"list": "bullet"}], ["clean"]],
+        key=f"nsr_editor_{d.week.label}",
+    ) or d.to_html()
+
+    plain = nsr_draft.html_to_text(edited_html)
+    changed = _normalise(edited_html) != _normalise(d.to_html())
+    findings = nsr_verify.check(plain, d.facts)
+    _verdict(findings, edited=changed)
 
     st.divider()
-    st.caption("Editable text — adjust, then copy out to publish.")
-    st.text_area("Report HTML", d.to_html(), height=200, key="nsr_html")
+    st.caption("Copy or download the report exactly as it stands above.")
+    stem = f"nsr_W{d.week.iso_week}_{d.week.sunday:%Y%m%d}"
+
+    c1, c2 = st.columns(2)
+    with c1:
+        _copy_button(edited_html, "📋 Copy HTML")
+    with c2:
+        _copy_button(plain, "📋 Copy text")
+
+    c3, c4, c5 = st.columns(3)
+    with c3:
+        st.download_button(
+            "⬇️ HTML", data=edited_html, file_name=f"{stem}.html",
+            mime="text/html", width="stretch",
+            help="The shape the publishing system stores.",
+        )
+    with c4:
+        st.download_button(
+            "⬇️ Plain text", data=plain,
+            file_name=f"{stem}.txt", mime="text/plain", width="stretch",
+            help="For pasting into an email.",
+        )
+    with c5:
+        st.download_button(
+            "⬇️ Evidence (CSV)", data=_evidence_csv(d),
+            file_name=f"{stem}_evidence.csv", mime="text/csv", width="stretch",
+            help="Every figure and every NOP citation behind the draft.",
+        )
+
+
+def _normalise(html: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", html)).strip()
+
+
+def _copy_button(text: str, label: str) -> None:
+    """Copy `text` to the clipboard.
+
+    st.code's built-in copy affordance does the work and needs no JS of our own,
+    which keeps this offline-safe (no CDN) and avoids a component dependency for
+    what is a one-click nicety.
+    """
+    with st.popover(label, width="stretch"):
+        st.caption("Click the copy icon in the top-right of the box.")
+        st.code(text, language=None, wrap_lines=True)
+
+
+def _evidence_csv(d: nsr_draft.Draft) -> str:
+    """Every figure and every citation, flat -- the audit trail, exportable."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["kind", "subject", "value", "unit", "source", "field", "detail"])
+    for f in d.facts.facts.values():
+        w.writerow(["figure", f.key, f.text, f.unit, f.source, f.field,
+                    f"exact={f.value}"])
+    for b in d.bullets:
+        for e in b.evidence:
+            w.writerow(["citation", b.name, "", "", f"NOP {e.message_id}",
+                        e.date.isoformat(), e.excerpt])
+    return buf.getvalue()
 
 
 def render() -> None:

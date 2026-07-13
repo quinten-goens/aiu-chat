@@ -13,6 +13,7 @@ it asserts that we cannot trace is surfaced to the analyst rather than published
 from __future__ import annotations
 
 import datetime as dt
+import html as _html_lib
 import re
 from dataclasses import dataclass, field
 
@@ -73,6 +74,34 @@ _CONTINUATION_OPENERS = frozenset({
 })
 
 
+HEADINGS = ("Traffic", "ATFM Delay", "Punctuality")
+
+
+def parse_headline(text: str) -> list[tuple[str, str]]:
+    """Split the model's headline into (heading, body) pairs.
+
+    The model emits "Traffic\\nThere were ...", i.e. a heading on its own line
+    with no blank line under it. Rendering that string straight into markdown
+    silently glues the heading onto the body -- it is a line break, not a
+    paragraph break -- so the report loses its bold headings. Parse it once here
+    and let every renderer work from the structure instead of the blob.
+    """
+    sections: list[tuple[str, str]] = []
+    heading, body = None, []
+    for line in (ln.strip() for ln in text.split("\n")):
+        if not line:
+            continue
+        if line.rstrip(":") in HEADINGS:
+            if heading:
+                sections.append((heading, " ".join(body)))
+            heading, body = line.rstrip(":"), []
+        elif heading:
+            body.append(line)
+    if heading:
+        sections.append((heading, " ".join(body)))
+    return sections
+
+
 @dataclass
 class Draft:
     """A complete draft, with everything needed to audit it."""
@@ -94,26 +123,53 @@ class Draft:
     def bullets(self) -> list[Bullet]:
         return self.enroute + self.airport
 
-    def to_html(self) -> str:
-        """The report in the shape the publishing system stores."""
-        out = [self.headline_html()]
+    @property
+    def sections(self) -> list[tuple[str, str]]:
+        return parse_headline(self.headline)
+
+    @property
+    def title(self) -> str:
+        return (f"Network situation (Week {self.week.iso_week}: "
+                f"{self.week.span_text()})")
+
+    # --- renderings, all from the same parsed structure --------------------
+    def to_markdown(self) -> str:
+        """For the screen, and as the editable source of truth."""
+        out = [f"**{head}**\n\n{body}" for head, body in self.sections]
         for label, bullets in (("For en-route ATFM delay:", self.enroute),
                                ("For airport ATFM delay:", self.airport)):
+            if not bullets:
+                continue
+            out.append(f"**{label}**\n\n" + "\n".join(
+                f"- **{b.name}** {b.text}" for b in bullets))
+        return "\n\n".join(out)
+
+    def to_html(self) -> str:
+        """The shape the publishing system stores."""
+        out = [f"<p><strong>{head}</strong></p><p>{body}</p>"
+               for head, body in self.sections]
+        for label, bullets in (("For en-route ATFM delay:", self.enroute),
+                               ("For airport ATFM delay:", self.airport)):
+            if not bullets:
+                continue
             out.append(f"<p><strong>{label}</strong></p><ul>")
-            for b in bullets:
-                out.append(f"<li><strong>{b.name}</strong> {b.text}</li>")
+            out += [f"<li><strong>{b.name}</strong> {b.text}</li>" for b in bullets]
             out.append("</ul>")
         return "".join(out)
 
-    def headline_html(self) -> str:
-        html = []
-        for para in self.headline.split("\n\n"):
-            lines = [ln for ln in para.split("\n") if ln.strip()]
-            if not lines:
+    def to_text(self) -> str:
+        """Plain text, for pasting into mail."""
+        out = [f"{self.title}\n"]
+        for head, body in self.sections:
+            out.append(f"{head}\n{body}\n")
+        for label, bullets in (("For en-route ATFM delay:", self.enroute),
+                               ("For airport ATFM delay:", self.airport)):
+            if not bullets:
                 continue
-            head, body = lines[0], " ".join(lines[1:])
-            html.append(f"<p><strong>{head}</strong></p><p>{body}</p>")
-        return "".join(html)
+            out.append(label)
+            out += [f"  - {b.name} {b.text}" for b in bullets]
+            out.append("")
+        return "\n".join(out)
 
 
 def _facts_block(wf: WeekFacts) -> str:
@@ -261,3 +317,64 @@ def build(week: Week | None = None, *, session: requests.Session | None = None,
     finally:
         if own:
             session.close()
+
+
+def markdown_to_html(md: str) -> str:
+    """Convert the editable markdown back into the publishing system's HTML.
+
+    The analyst edits markdown (it is legible, and it is what the screen shows),
+    but the report is stored as HTML. Round-tripping through this keeps the two in
+    step, so what is exported is what was reviewed -- rather than exporting the
+    model's original draft and quietly discarding the edits.
+
+    Deliberately small: the report is only ever bold headings, paragraphs and
+    bulleted lists. Anything richer is not house style.
+    """
+    html: list[str] = []
+    in_list = False
+
+    def close_list() -> None:
+        nonlocal in_list
+        if in_list:
+            html.append("</ul>")
+            in_list = False
+
+    for raw in md.split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith(("- ", "* ")):
+            if not in_list:
+                html.append("<ul>")
+                in_list = True
+            html.append(f"<li>{_inline(line[2:].strip())}</li>")
+            continue
+        close_list()
+        # A line that is nothing but bold is a heading paragraph.
+        bare = re.fullmatch(r"\*\*(.+?)\*\*:?", line)
+        if bare:
+            html.append(f"<p><strong>{bare.group(1)}</strong></p>")
+        else:
+            html.append(f"<p>{_inline(line)}</p>")
+    close_list()
+    return "".join(html)
+
+
+def _inline(text: str) -> str:
+    """**bold** -> <strong>, and nothing else."""
+    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+
+
+def html_to_text(html: str) -> str:
+    """HTML back to readable plain text.
+
+    Load-bearing: this is what the verify gate re-reads after the analyst edits
+    the draft in the WYSIWYG editor. If it drops content, the gate silently stops
+    checking exactly the version that gets published.
+    """
+    text = re.sub(r"</li\s*>", "\n", html, flags=re.I)
+    text = re.sub(r"<li\s*>", "  - ", text, flags=re.I)
+    text = re.sub(r"</p\s*>|<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = _html_lib.unescape(text)
+    return "\n".join(ln.rstrip() for ln in text.split("\n") if ln.strip())
