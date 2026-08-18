@@ -243,6 +243,17 @@ def admin_viewer_configured() -> bool:
 # NOTE: this API is D-1 (yesterday's daily figures), not real-time.
 DATAAPP_BASE = os.getenv("AIU_DATAAPP_BASE", "https://api-data-app.eurocontrol.int/api").rstrip("/")
 
+# The Data App API silently caps itemsPerPage at 100 and ignores `page`, so long
+# windows must be walked with a syncDate cursor. The window itself is never
+# trimmed (a user asking for 3 years gets 3 years), but we bound total calls so a
+# pathological request cannot hammer a public API — polite-scraper constraint.
+DATAAPP_MAX_PAGES = int(os.getenv("AIU_DATAAPP_MAX_PAGES", "40"))
+# Seconds to sleep between consecutive paged calls.
+DATAAPP_THROTTLE_S = float(os.getenv("AIU_DATAAPP_THROTTLE_S", "0.15"))
+# Parallel per-day metric reads in a time series. Modest by design: enough to
+# make a 200-day series usable, low enough to stay a polite client.
+DATAAPP_CONCURRENCY = int(os.getenv("AIU_DATAAPP_CONCURRENCY", "8"))
+
 # --- EUROCONTROL NM live API -----------------------------------------------
 # The genuinely real-time Network Manager API behind .../performance/live.html.
 NM_LIVE_BASE = os.getenv(

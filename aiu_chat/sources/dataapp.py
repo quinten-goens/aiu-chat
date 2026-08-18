@@ -14,6 +14,8 @@ All calls are GET, public, read-only. See docs/dataapp_api.md for the recipes.
 """
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date as _date, timedelta
 
@@ -23,6 +25,8 @@ from aiu_chat import config
 
 USER_AGENT = "aiu-chat/0.1"
 TIMEOUT = 30
+# The API silently caps page size at 100 regardless of what we ask for.
+API_PAGE_SIZE = 100
 
 # Entity kind -> (dimension endpoint, syncs filter field, syncs dataType).
 # NOTE: the dataType strings are the live API's, verified against the running
@@ -273,16 +277,32 @@ def find_syncs_in_range(
     params["syncDate[after]"] = start
     params["syncDate[before]"] = end
     params["order[syncDate]"] = "asc"
-    # A generous page size so a long window comes back in one call; the caller
-    # has already clamped the span to MAX_PERIOD_DAYS.
-    params["itemsPerPage"] = max(config.MAX_PERIOD_DAYS, 30) + 5
+    params["itemsPerPage"] = API_PAGE_SIZE
 
-    data = _get(session, "/syncs", params).get("data", [])
+    # Walk the window with a syncDate cursor. Offset paging does NOT work here:
+    # the API ignores `page` and re-serves the same first 100 rows, so we instead
+    # advance `syncDate[after]` past the last day we saw on each pass.
     by_day: dict[str, int] = {}
-    for row in data:
-        d = (row.get("syncDate") or "")[:10]
-        if d and d not in by_day:
-            by_day[d] = row["id"]
+    cursor = start
+    for _ in range(max(1, config.DATAAPP_MAX_PAGES)):
+        page_params = dict(params, **{"syncDate[after]": cursor})
+        data = _get(session, "/syncs", page_params).get("data", [])
+        if not data:
+            break
+        last_seen = cursor
+        for row in data:
+            d = (row.get("syncDate") or "")[:10]
+            if d and d not in by_day:
+                by_day[d] = row["id"]
+            if d > last_seen:
+                last_seen = d
+        # No forward progress (all rows on/before the cursor) -> window exhausted.
+        if last_seen <= cursor or len(data) < API_PAGE_SIZE:
+            break
+        cursor = last_seen
+        if config.DATAAPP_THROTTLE_S:
+            time.sleep(config.DATAAPP_THROTTLE_S)
+
     return [(sid, d) for d, sid in sorted(by_day.items())]
 
 
