@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import date as _date, timedelta
+from datetime import date as _date
 
 import requests
 
@@ -27,6 +27,11 @@ USER_AGENT = "aiu-chat/0.1"
 TIMEOUT = 30
 # The API silently caps page size at 100 regardless of what we ask for.
 API_PAGE_SIZE = 100
+# The Data App holds no syncs before this date — verified against the live API
+# for countries, airports and aircraft operators alike (2022 and 2023 return
+# zero syncs for every entity kind). Requests reaching further back are lifted
+# to it and the answer says so, rather than reporting an empty or 5-day series.
+DATAAPP_FIRST_DAY = "2024-01-01"
 
 # Entity kind -> (dimension endpoint, syncs filter field, syncs dataType).
 # NOTE: the dataType strings are the live API's, verified against the running
@@ -98,7 +103,9 @@ class TimeseriesResult:
     start: str              # YYYY-MM-DD (inclusive)
     end: str                # YYYY-MM-DD (inclusive)
     rows: list[dict] = field(default_factory=list)
-    truncated: bool = False  # True if the period was capped to MAX_PERIOD_DAYS
+    # True if the requested START was lifted to DATAAPP_FIRST_DAY because the
+    # API holds nothing earlier. The END is never trimmed.
+    truncated: bool = False
 
 
 @dataclass
@@ -263,21 +270,29 @@ def fetch_network(
 
 
 def _clamp_period(start: str, end: str) -> tuple[str, str, bool]:
-    """Order start<=end and cap the span to config.MAX_PERIOD_DAYS.
+    """Order start<=end and lift the start to the first day the API has data for.
 
-    Returns (start, end, truncated). Truncation trims the END forward from the
-    start, so the returned window begins where the user asked. Be a polite
-    scraper — an unbounded range would otherwise hammer the live API."""
+    Returns (start, end, adjusted). The span itself is NOT capped: pagination
+    walks arbitrarily long windows and the page ceiling bounds how hard we hit
+    the API, so the user's requested end date is always honoured.
+
+    The old behaviour trimmed the END to a fixed number of days, which combined
+    disastrously with the data floor — a 2023->2026 request was cut to a 370-day
+    window landing almost entirely in the pre-2024 dead zone, so the app narrated
+    5 real days and blamed "limits" (logged turns 27/28/29)."""
     s = _date.fromisoformat(start)
     e = _date.fromisoformat(end)
     if e < s:
         s, e = e, s
-    truncated = False
-    max_days = max(1, config.MAX_PERIOD_DAYS)
-    if (e - s).days + 1 > max_days:
-        e = s + timedelta(days=max_days - 1)
-        truncated = True
-    return s.isoformat(), e.isoformat(), truncated
+    adjusted = False
+    floor = _date.fromisoformat(DATAAPP_FIRST_DAY)
+    if s < floor:
+        s = floor
+        adjusted = True
+    if e < s:
+        # The whole window predates the floor; return an empty-but-honest range.
+        e = s
+    return s.isoformat(), e.isoformat(), adjusted
 
 
 def find_syncs_in_range(

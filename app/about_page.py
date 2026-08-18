@@ -12,6 +12,7 @@ import streamlit as st
 from streamlit_mermaid import st_mermaid
 
 from aiu_chat import config
+from aiu_chat.sources import dataapp
 
 
 def _term(title: str, body: str) -> None:
@@ -401,10 +402,13 @@ flowchart TD
     )
     st.markdown(
         "The model **only fills a JSON spec** — it never builds API calls. Deterministic "
-        "resolvers do the sync→metric/ranking lookups. For a date range, exactly **one** "
-        "`/syncs` call gets every day in the window (capped at "
-        f"**{config.MAX_PERIOD_DAYS} days** to stay a polite scraper), then one read per "
-        "day. **Multi-entity comparisons** ('France vs Germany') stack each entity's "
+        "resolvers do the sync→metric/ranking lookups. For a date range, `/syncs` is "
+        "walked with a **date cursor** (the API silently caps a page at 100 rows and "
+        "ignores `page`), so a window of any length comes back in full — bounded by a "
+        f"call ceiling of **{config.DATAAPP_MAX_PAGES} pages** to stay a polite scraper. "
+        "Daily reads then run concurrently. Coverage starts "
+        f"**{dataapp.DATAAPP_FIRST_DAY}**; earlier requests are lifted to it and the "
+        "answer says so. **Multi-entity comparisons** ('France vs Germany') stack each entity's "
         "series into one long frame tagged with an `entity` column, so a single chart "
         "can split by it — and any aggregation joins/groups *per entity*, never mixing "
         "them. Any derivation (weekly totals, delay ÷ flights) is a **validated SQL** "

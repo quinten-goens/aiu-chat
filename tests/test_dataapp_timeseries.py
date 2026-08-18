@@ -24,14 +24,31 @@ from aiu_chat.sources import dataapp as d
 
 # --- unit: period bounds + day-record picker -------------------------------
 
-def test_clamp_period_orders_and_caps(monkeypatch):
-    # Swapped bounds are ordered; nothing is truncated when within the cap.
-    monkeypatch.setattr(config, "MAX_PERIOD_DAYS", 370)
+def test_clamp_period_orders_bounds():
+    # Swapped bounds are ordered; a long span is NOT trimmed any more —
+    # pagination handles it, so the user's window is honoured in full.
     assert d._clamp_period("2026-05-01", "2026-01-01") == ("2026-01-01", "2026-05-01", False)
-    # Over the cap -> end trimmed forward from the start, truncated flag set.
-    monkeypatch.setattr(config, "MAX_PERIOD_DAYS", 10)
-    s, e, trunc = d._clamp_period("2026-01-01", "2026-12-31")
-    assert (s, e, trunc) == ("2026-01-01", "2026-01-10", True)
+    assert d._clamp_period("2024-01-01", "2026-12-31") == ("2024-01-01", "2026-12-31", False)
+
+
+def test_clamp_period_lifts_start_to_the_data_floor():
+    """The API has nothing before DATAAPP_FIRST_DAY. Asking from 2022 must lift
+    the start rather than return an empty series (logged turns 24/25)."""
+    s, e, adjusted = d._clamp_period("2022-01-01", "2026-08-15")
+    assert s == d.DATAAPP_FIRST_DAY
+    assert e == "2026-08-15"
+    assert adjusted is True
+
+
+def test_clamp_period_wholly_before_the_floor_is_reported():
+    """A window entirely in the dead zone must be flagged, not silently moved."""
+    s, e, adjusted = d._clamp_period("2022-01-01", "2023-06-01")
+    assert adjusted is True
+    assert s == d.DATAAPP_FIRST_DAY
+
+
+def test_clamp_period_leaves_in_range_windows_alone():
+    assert d._clamp_period("2024-06-01", "2024-09-01") == ("2024-06-01", "2024-09-01", False)
 
 
 def test_pick_day_record_prefers_dy_total():

@@ -183,11 +183,11 @@ MAX_SUBQUESTIONS = int(os.getenv("AIU_MAX_SUBQUESTIONS", "4"))
 # weekly/monthly, divided into per-flight ratios, etc.) and VISUALISED. Off ->
 # only single-day / network / ranking Data App shapes (prior behaviour).
 DATAAPP_TIMESERIES = os.getenv("AIU_DATAAPP_TIMESERIES", "true").lower() in ("1", "true", "yes")
-# Hard cap on the number of days a single period may span, so a fat-finger
-# request ("daily traffic for the last 10 years") can't hammer the live API.
-# One /syncs call gets all sync ids in the window; this bounds the per-day
-# metric reads that follow. Be a polite scraper (see CLAUDE.md).
-MAX_PERIOD_DAYS = int(os.getenv("AIU_MAX_PERIOD_DAYS", "370"))
+# NOTE: AIU_MAX_PERIOD_DAYS is gone. It capped a period's SPAN, which combined
+# badly with the API's 2024-01-01 data floor: a 2023->2026 request was trimmed to
+# a 370-day window landing almost entirely in the pre-2024 dead zone, so the app
+# reported 5 days and blamed "limits". Long windows are now paginated in full and
+# politeness is bounded by DATAAPP_MAX_PAGES instead.
 
 # --- Entity / knowledge layer ----------------------------------------------
 # When true, the SQL prompt is enriched with resolved canonical entities (from

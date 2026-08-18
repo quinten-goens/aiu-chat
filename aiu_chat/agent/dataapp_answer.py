@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from aiu_chat.agent import prompts
 from aiu_chat.agent.llm import OllamaClient
 from aiu_chat.sources.dataapp import (
+    DATAAPP_FIRST_DAY,
     DataAppError,
     DataAppResult,
     RankingResult,
@@ -310,6 +311,11 @@ def _answer_timeseries(question, spec, client, fetch_ts) -> DataAppAnswer:
 
     start, end = spec.get("start"), spec.get("end")
     if not (_date({"date": start}) and _date({"date": end})):
+        # "How far back can you go?" is a coverage question, not a malformed
+        # range — answer it instead of asking for dates the user is asking about.
+        cov = coverage_answer(question)
+        if cov is not None:
+            return cov
         return DataAppAnswer(
             question=question,
             answer="I couldn't read the date range — give a start and end date "
@@ -332,6 +338,7 @@ def _answer_timeseries(question, spec, client, fetch_ts) -> DataAppAnswer:
     per_metric: dict[str, list[TimeseriesResult]] = {}
     series: list[TimeseriesResult] = []
     truncated = False
+    actual_start: str | None = None
     errors: list[str] = []
     entity_names: list[str] = []
     for kind, query in targets:
@@ -349,10 +356,27 @@ def _answer_timeseries(question, spec, client, fetch_ts) -> DataAppAnswer:
             series.append(ts)
             per_metric.setdefault(metric, []).append(ts)
             truncated = truncated or ts.truncated
+            # Report the window we actually fetched, not the one that was asked
+            # for: narrating the requested start next to lifted data produced
+            # "the data only goes back to 2023" for a series starting in 2024.
+            if actual_start is None or ts.start < actual_start:
+                actual_start = ts.start
             if ts.entity.name not in entity_names:
                 entity_names.append(ts.entity.name)
 
     if not series:
+        # Don't leak the raw resolver error (it quotes the ADJUSTED window, which
+        # reads as nonsense next to what the user typed — logged turns 24/25).
+        # If the ask predates the data, say so plainly instead.
+        if end < DATAAPP_FIRST_DAY:
+            return DataAppAnswer(
+                question=question,
+                answer=(
+                    f"That period is before the EUROCONTROL Data App's coverage: "
+                    f"daily figures start on **{DATAAPP_FIRST_DAY}**. Ask again "
+                    f"from {DATAAPP_FIRST_DAY} onwards, or ask for the local AIU "
+                    "datasets, which go back to 2008 at monthly granularity."
+                ), ok=False)
         detail = "; ".join(errors) if errors else "no data"
         return DataAppAnswer(
             question=question,
@@ -391,7 +415,8 @@ def _answer_timeseries(question, spec, client, fetch_ts) -> DataAppAnswer:
     # question that asked through August (four logged conversations).
     rows_json = _narration_sample(result_df).to_json(orient="records")
     messages = prompts.build_dataapp_timeseries_messages(
-        question, metric_line, entity_name, start, end, rows_json, capped=truncated)
+        question, metric_line, entity_name, actual_start, end, rows_json,
+        capped=truncated)
     answer = client.chat(messages, temperature=0.0).strip()
     if errors:
         answer += "\n\n_(No data for: " + "; ".join(errors) + ".)_"
@@ -465,6 +490,40 @@ def _maybe_manipulate(question, spec, frames, series, client):
 # How many rows of a series the narrating model sees. Long series are downsampled
 # rather than truncated, so the prompt stays small but still spans the window.
 NARRATION_ROWS = 60
+
+# Phrasings that ask how far back the data goes rather than for a series.
+_COVERAGE_PATTERNS = (
+    "how far back", "max range", "maximum range", "furthest back",
+    "how far can you go", "how much history", "earliest date",
+    "earliest data", "oldest data", "date range available",
+    "how many years", "range you can go",
+)
+
+
+def coverage_answer(question: str):
+    """Answer "how far back can you go?" instead of demanding a date range.
+
+    A user who asks this has already been told "give me a start and end date",
+    which is a dead end when the thing they want to know IS the available
+    range (logged turn 26). Returns None for anything that is not such a
+    question, so the normal date-range error still applies."""
+    q = (question or "").lower()
+    if not any(p in q for p in _COVERAGE_PATTERNS):
+        return None
+    first = DATAAPP_FIRST_DAY
+    return DataAppAnswer(
+        question=question,
+        answer=(
+            f"Daily EUROCONTROL Data App figures go back to **{first}** — that is "
+            "the earliest day the API holds, for countries, airports, airlines "
+            "and the network alike. Data runs from there through the latest "
+            "available day (typically yesterday, D-1).\n\n"
+            "For longer history, the local AIU datasets cover **2008 onwards** at "
+            "monthly granularity (traffic, delays, CO2, flight efficiency) — ask "
+            "for those directly and I'll query them instead."
+        ),
+        ok=True,
+    )
 
 
 def _narration_sample(df, max_rows: int = NARRATION_ROWS):

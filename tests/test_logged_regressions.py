@@ -81,3 +81,33 @@ def test_narration_sample_passes_short_frames_through():
 def _ns(df):
     from aiu_chat.agent.dataapp_answer import _narration_sample
     return _narration_sample(df)
+
+
+# --- second audit round: multi-year requests (turns 24-29) ------------------
+
+def test_long_span_is_no_longer_trimmed():
+    """Turns 27/28/29: a 2023->2026 ask was cut to 370 days landing in the
+    pre-2024 dead zone, so the app narrated 5 days and blamed 'limits'."""
+    from aiu_chat.sources import dataapp
+
+    s, e, adjusted = dataapp._clamp_period("2023-01-01", "2026-08-15")
+    assert e == "2026-08-15", "the requested end date must be honoured"
+    assert s == dataapp.DATAAPP_FIRST_DAY
+    assert adjusted is True
+
+
+def test_coverage_question_gets_a_real_answer():
+    """Turn 26: 'what's the max range you can go back?' hit a generic
+    'I couldn't read the date range' dead end."""
+    from aiu_chat.agent.dataapp_answer import coverage_answer
+
+    ans = coverage_answer("What's the max range you can go back?")
+    assert ans is not None
+    assert ans.ok is True
+    assert "2024" in ans.answer
+
+
+def test_coverage_answer_ignores_normal_questions():
+    from aiu_chat.agent.dataapp_answer import coverage_answer
+
+    assert coverage_answer("How many flights in France on 10 March 2026?") is None
