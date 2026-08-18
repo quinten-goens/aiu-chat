@@ -14,6 +14,8 @@ All calls are GET, public, read-only. See docs/dataapp_api.md for the recipes.
 """
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date as _date, timedelta
 
@@ -23,6 +25,8 @@ from aiu_chat import config
 
 USER_AGENT = "aiu-chat/0.1"
 TIMEOUT = 30
+# The API silently caps page size at 100 regardless of what we ask for.
+API_PAGE_SIZE = 100
 
 # Entity kind -> (dimension endpoint, syncs filter field, syncs dataType).
 # NOTE: the dataType strings are the live API's, verified against the running
@@ -120,7 +124,30 @@ def _get(session: requests.Session, path: str, params: dict) -> dict:
     return r.json()
 
 
+_entity_cache: dict[tuple[str, str], tuple[float, Entity]] = {}
+
+
+def clear_caches() -> None:
+    """Drop memoised lookups (tests, and after a data refresh)."""
+    _entity_cache.clear()
+
+
 def resolve_entity(kind: str, query: str, session: requests.Session) -> Entity:
+    """Resolve a name or code to an entity id, memoised for a short TTL.
+
+    Entity ids are stable, so re-resolving "France" on every turn is pure
+    latency. Sync ids are NOT cached here — they roll daily and a stale one
+    would silently serve yesterday's figure as today's."""
+    key = (kind, (query or "").strip().lower())
+    hit = _entity_cache.get(key)
+    if hit is not None and (time.monotonic() - hit[0]) < config.DATAAPP_CACHE_TTL_S:
+        return hit[1]
+    entity = _resolve_entity_uncached(kind, query, session)
+    _entity_cache[key] = (time.monotonic(), entity)
+    return entity
+
+
+def _resolve_entity_uncached(kind: str, query: str, session: requests.Session) -> Entity:
     """Resolve a name or code to an entity id via the dimension endpoint."""
     if kind not in ENTITY_ENDPOINTS:
         raise DataAppError(f"Unknown entity kind: {kind}")
@@ -273,16 +300,32 @@ def find_syncs_in_range(
     params["syncDate[after]"] = start
     params["syncDate[before]"] = end
     params["order[syncDate]"] = "asc"
-    # A generous page size so a long window comes back in one call; the caller
-    # has already clamped the span to MAX_PERIOD_DAYS.
-    params["itemsPerPage"] = max(config.MAX_PERIOD_DAYS, 30) + 5
+    params["itemsPerPage"] = API_PAGE_SIZE
 
-    data = _get(session, "/syncs", params).get("data", [])
+    # Walk the window with a syncDate cursor. Offset paging does NOT work here:
+    # the API ignores `page` and re-serves the same first 100 rows, so we instead
+    # advance `syncDate[after]` past the last day we saw on each pass.
     by_day: dict[str, int] = {}
-    for row in data:
-        d = (row.get("syncDate") or "")[:10]
-        if d and d not in by_day:
-            by_day[d] = row["id"]
+    cursor = start
+    for _ in range(max(1, config.DATAAPP_MAX_PAGES)):
+        page_params = dict(params, **{"syncDate[after]": cursor})
+        data = _get(session, "/syncs", page_params).get("data", [])
+        if not data:
+            break
+        last_seen = cursor
+        for row in data:
+            d = (row.get("syncDate") or "")[:10]
+            if d and d not in by_day:
+                by_day[d] = row["id"]
+            if d > last_seen:
+                last_seen = d
+        # No forward progress (all rows on/before the cursor) -> window exhausted.
+        if last_seen <= cursor or len(data) < API_PAGE_SIZE:
+            break
+        cursor = last_seen
+        if config.DATAAPP_THROTTLE_S:
+            time.sleep(config.DATAAPP_THROTTLE_S)
+
     return [(sid, d) for d, sid in sorted(by_day.items())]
 
 
@@ -322,8 +365,9 @@ def fetch_timeseries(
                 f"No {metric} syncs for {entity.name} between {start} and {end}.")
 
         endpoint, _, prefix = METRIC_ENDPOINTS[metric]
-        rows: list[dict] = []
-        for sync_id, sync_date in syncs:
+
+        def _read_day(item: tuple[int, str]) -> dict | None:
+            sync_id, sync_date = item
             data = _get(
                 session, endpoint,
                 {f"{prefix}.sync.id": sync_id, "itemsPerPage": 30},
@@ -332,12 +376,21 @@ def fetch_timeseries(
             recs = [{k: v for k, v in r.items() if k != prefix} for r in data]
             dy = _pick_day_record(recs)
             if dy is None:
-                continue
-            rows.append({
+                return None
+            return {
                 "date": sync_date,
                 "value": dy.get("value"),
                 "avgValue": dy.get("avgValue"),
-            })
+            }
+
+        # One call per day is unavoidable (the API has no bulk endpoint), but they
+        # are independent, so run a bounded pool instead of ~200 serial requests.
+        rows: list[dict] = []
+        workers = max(1, min(config.DATAAPP_CONCURRENCY, len(syncs)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for row in pool.map(_read_day, syncs):
+                if row is not None:
+                    rows.append(row)
     finally:
         if own:
             session.close()

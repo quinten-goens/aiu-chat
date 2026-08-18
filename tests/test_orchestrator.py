@@ -401,3 +401,78 @@ def test_compound_clarification_short_circuits(monkeypatch):
     md.assert_not_called()
     assert turn.needs_clarification is True
     assert turn.answer == "Which airport?"
+
+
+# --- parallel compound fan-out ---------------------------------------------
+
+def test_compound_subquestions_run_in_parallel(monkeypatch):
+    """Parts 2..N run concurrently.
+
+    Part 1 is deliberately serial (its clarification must be able to cancel the
+    rest before any backend is queried), so four 0.3s parts cost 0.3s for part 1
+    plus 0.3s for the other three together — well under the 1.2s serial cost."""
+    import time
+
+    def slow_single(question, standalone, *, client, catalog, status):
+        time.sleep(0.3)
+        return Turn(question, standalone, "data", answer=f"ans:{question}")
+
+    monkeypatch.setattr(orch, "_answer_single", slow_single)
+    monkeypatch.setattr(orch.config, "ROUTE_CONCURRENCY", 3)
+    monkeypatch.setattr(orch.config, "MULTI_SOURCE", False)
+
+    subqs = ["part one", "part two", "part three", "part four"]
+    t0 = time.time()
+    turn = orch._answer_compound(
+        "compound?", "compound?", subqs,
+        client=FakeClient(), catalog=None, status=lambda *a, **k: None)
+    elapsed = time.time() - t0
+
+    assert elapsed < 0.9, f"sub-questions ran serially ({elapsed:.2f}s)"
+    # Order must be preserved so synthesis and citations stay deterministic.
+    assert [st.question for st in turn.sub_turns] == subqs
+
+
+def test_compound_does_not_query_later_parts_when_first_clarifies(monkeypatch):
+    """Part 1 clarifying must cancel the rest BEFORE they hit any backend."""
+    seen = []
+
+    def single(question, standalone, *, client, catalog, status):
+        seen.append(question)
+        t = Turn(question, standalone, "data")
+        if question == "part one":
+            t.needs_clarification = True
+            t.answer = "Which airport?"
+        return t
+
+    monkeypatch.setattr(orch, "_answer_single", single)
+    monkeypatch.setattr(orch.config, "ROUTE_CONCURRENCY", 3)
+
+    turn = orch._answer_compound(
+        "compound?", "compound?", ["part one", "part two", "part three"],
+        client=FakeClient(), catalog=None, status=lambda *a, **k: None)
+
+    assert turn.needs_clarification is True
+    assert seen == ["part one"], f"later parts were queried anyway: {seen}"
+
+
+def test_compound_still_short_circuits_on_clarification(monkeypatch):
+    """A clarifying sub-question must surface alone, exactly as before."""
+    def single(question, standalone, *, client, catalog, status):
+        t = Turn(question, standalone, "data")
+        if question == "part two":
+            t.needs_clarification = True
+            t.answer = "Which airport?"
+        else:
+            t.answer = f"ans:{question}"
+        return t
+
+    monkeypatch.setattr(orch, "_answer_single", single)
+    monkeypatch.setattr(orch.config, "ROUTE_CONCURRENCY", 3)
+
+    turn = orch._answer_compound(
+        "compound?", "compound?", ["part one", "part two", "part three"],
+        client=FakeClient(), catalog=None, status=lambda *a, **k: None)
+
+    assert turn.needs_clarification is True
+    assert turn.answer == "Which airport?"

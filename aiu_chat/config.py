@@ -102,14 +102,14 @@ _OPENAI_TIERS = {
     },
     "gpt_mini": {
         "provider": "openai",
-        "model": os.getenv("AIU_OPENAI_MINI", "gpt-5.4-mini"),
-        "label": "🧠 Balanced · GPT mini",
+        "model": os.getenv("AIU_OPENAI_MINI", "gpt-5.6-luna"),
+        "label": "🧠 Balanced · GPT 5.6 luna",
         "blurb": "Balanced OpenAI model — a good default.",
     },
     "gpt_max": {
         "provider": "openai",
-        "model": os.getenv("AIU_OPENAI_MAX", "gpt-5.5"),
-        "label": "🚀 Max · GPT (most capable)",
+        "model": os.getenv("AIU_OPENAI_MAX", "gpt-5.6-terra"),
+        "label": "🚀 Max · GPT 5.6 terra (most capable)",
         "blurb": "OpenAI's most capable general model. Best quality, higher cost.",
     },
 }
@@ -130,6 +130,11 @@ OLLAMA_TIMEOUT = int(os.getenv("AIU_OLLAMA_TIMEOUT", "180"))
 # benefit on deterministic SQL/JSON generation. Set to "1"/"true" to re-enable.
 OLLAMA_THINK = os.getenv("AIU_OLLAMA_THINK", "false").lower() in ("1", "true", "yes")
 
+# Transient upstream failures (HTTP 5xx / 429) cost a whole logged turn once.
+# Retry a couple of times with exponential backoff before surfacing the error.
+LLM_MAX_RETRIES = int(os.getenv("AIU_LLM_MAX_RETRIES", "2"))
+LLM_RETRY_BASE_S = float(os.getenv("AIU_LLM_RETRY_BASE_S", "1.0"))
+
 # --- Multi-source planner (feature #2) -------------------------------------
 # When true, the router may select MORE THAN ONE source for a question (e.g. a
 # live daily figure + a historical average + a methodology definition), and a
@@ -138,6 +143,9 @@ OLLAMA_THINK = os.getenv("AIU_OLLAMA_THINK", "false").lower() in ("1", "true", "
 MULTI_SOURCE = os.getenv("AIU_MULTI_SOURCE", "true").lower() in ("1", "true", "yes")
 # Cap on how many sources one question may fan out to (bounds latency/cost).
 MAX_ROUTES = int(os.getenv("AIU_MAX_ROUTES", "3"))
+# Independent sub-questions in a compound answer are fanned out in parallel; the
+# sequential version made a 3-part question cost the sum of its parts.
+ROUTE_CONCURRENCY = int(os.getenv("AIU_ROUTE_CONCURRENCY", "3"))
 
 # --- Cross-frame aggregation (feature #4) ----------------------------------
 # When true, a turn that produced several tabular frames (multi-source / fan-out)
@@ -242,6 +250,21 @@ def admin_viewer_configured() -> bool:
 # --- EUROCONTROL Data App API ----------------------------------------------
 # NOTE: this API is D-1 (yesterday's daily figures), not real-time.
 DATAAPP_BASE = os.getenv("AIU_DATAAPP_BASE", "https://api-data-app.eurocontrol.int/api").rstrip("/")
+
+# The Data App API silently caps itemsPerPage at 100 and ignores `page`, so long
+# windows must be walked with a syncDate cursor. The window itself is never
+# trimmed (a user asking for 3 years gets 3 years), but we bound total calls so a
+# pathological request cannot hammer a public API — polite-scraper constraint.
+DATAAPP_MAX_PAGES = int(os.getenv("AIU_DATAAPP_MAX_PAGES", "40"))
+# Seconds to sleep between consecutive paged calls.
+DATAAPP_THROTTLE_S = float(os.getenv("AIU_DATAAPP_THROTTLE_S", "0.15"))
+# Parallel per-day metric reads in a time series. Modest by design: enough to
+# make a 200-day series usable, low enough to stay a polite client.
+DATAAPP_CONCURRENCY = int(os.getenv("AIU_DATAAPP_CONCURRENCY", "8"))
+# Entity lookups ("France" -> id) are stable; cache them for a session to avoid
+# re-resolving the same name on every turn. Sync ids change daily, so this TTL is
+# short enough to pick up a new day's data.
+DATAAPP_CACHE_TTL_S = int(os.getenv("AIU_DATAAPP_CACHE_TTL_S", "900"))
 
 # --- EUROCONTROL NM live API -----------------------------------------------
 # The genuinely real-time Network Manager API behind .../performance/live.html.

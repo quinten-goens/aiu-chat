@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from aiu_chat import config
-from aiu_chat.agent import prompts
+from aiu_chat.agent import aliases, prompts
 from aiu_chat.agent.catalog import Catalog, get_catalog
 from aiu_chat.agent.concept import ConceptAnswer, answer_concept_question
 from aiu_chat.agent.dataapp_answer import DataAppAnswer, answer_dataapp_question
@@ -177,10 +178,31 @@ def plan_routes(question: str, client: OllamaClient, *, max_routes: int) -> list
 _CLARIFIABLE_ROUTES = {"data", "both", "dataapp", "nm_live"}
 
 
+def _candidate_entity_names(question: str) -> list[str]:
+    """Multi-word proper-noun-ish spans from the question, longest first.
+
+    Cheap and deliberately over-generous: `aliases.resolve_near_miss` is the
+    authority on what is actually a near-miss, so a false candidate costs
+    nothing but a dict lookup."""
+    spans = re.findall(
+        r"\b([A-Z][\w’'-]*(?:\s+(?:[A-Z][\w’'-]*|ACC|UAC|FIR))*)", question)
+    return sorted({s.strip() for s in spans if s.strip()}, key=len, reverse=True)
+
+
 def needs_clarification(question: str, route: str, client: OllamaClient) -> str | None:
     """Return a single clarifying question if an essential detail is missing,
     else None. Conservative: only fires when the agent genuinely can't proceed.
     Failures default to None (proceed) so a hiccup never blocks an answer."""
+    # A named ACC/UAC is a near-miss for a real FIR/ANSP entity. Three logged
+    # conversations about "Athens ACC" were refused outright even though Greece
+    # FIR holds the answer — ask instead of failing closed. Checked BEFORE the
+    # route guard: the refusals came back on routes that never reach the LLM
+    # clarification below.
+    for token in _candidate_entity_names(question):
+        nm = aliases.resolve_near_miss(token)
+        if nm is not None:
+            return nm.question()
+
     if route not in _CLARIFIABLE_ROUTES:
         return None
     try:
@@ -397,18 +419,48 @@ def _answer_compound(
     for logging) and unions their sources. If a sub-question itself needs
     clarification, we ask that one question and stop — the user's reply re-runs
     the whole compound question next turn."""
-    sub_turns: list[Turn] = []
-    for i, sub in enumerate(subqs, 1):
-        status("Answering part " + str(i) + f" of {len(subqs)}…", f"*{sub}*")
-        # Each sub-question is already standalone -> its own question and
-        # standalone_question are the sub text (no further rewrite).
-        st = _answer_single(sub, sub, client=client, catalog=catalog, status=status)
-        # A clarifying sub-question can't be silently merged — surface it and stop.
+    # Each sub-question is already standalone -> its own question and
+    # standalone_question are the sub text (no further rewrite).
+    def _run(sub: str) -> Turn:
+        return _answer_single(sub, sub, client=client, catalog=catalog, status=status)
+
+    def _clarified(st: Turn) -> Turn:
+        """A clarifying sub-question can't be silently merged — ask it alone."""
+        merged = Turn(question=question, standalone_question=standalone, route=st.route)
+        merged.needs_clarification = True
+        merged.answer = st.answer
+        return merged
+
+    workers = max(1, min(config.ROUTE_CONCURRENCY, len(subqs)))
+
+    # The first part runs alone: if it needs clarification we must ask and stop
+    # WITHOUT querying any backend for the later parts (asking the user a
+    # question and then throwing away paid work would be silly). Only once it
+    # comes back clean do the remaining parts fan out.
+    status("Answering part 1 of " + str(len(subqs)) + "…", f"*{subqs[0]}*")
+    first = _run(subqs[0])
+    if first.needs_clarification:
+        return _clarified(first)
+
+    sub_turns: list[Turn] = [first]
+    rest = subqs[1:]
+    if rest and workers > 1 and len(rest) > 1:
+        # Independent sub-questions (separate backends, no shared mutable state).
+        # pool.map keeps input order, which matters: synthesis and citations must
+        # stay deterministic. The status callback writes to Streamlit, so it is
+        # only ever called from this thread.
+        status(f"Answering parts 2-{len(subqs)}…", "*in parallel*")
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(_run, rest))
+    else:
+        results = []
+        for i, sub in enumerate(rest, 2):
+            status("Answering part " + str(i) + f" of {len(subqs)}…", f"*{sub}*")
+            results.append(_run(sub))
+
+    for st in results:
         if st.needs_clarification:
-            merged = Turn(question=question, standalone_question=standalone, route=st.route)
-            merged.needs_clarification = True
-            merged.answer = st.answer
-            return merged
+            return _clarified(st)
         sub_turns.append(st)
 
     # Merge: union routes/sources, collect (label, grounded answer) parts.

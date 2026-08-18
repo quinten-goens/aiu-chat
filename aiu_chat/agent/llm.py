@@ -10,6 +10,7 @@ Use `build_client(tier)` to get the right client for a configured mode.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 
 import requests
@@ -23,6 +24,36 @@ class OllamaError(RuntimeError):
 
 class OpenAIError(RuntimeError):
     """Raised when the OpenAI API is unreachable or returns an error."""
+
+
+# Upstream hiccups worth a second attempt: server-side failures, rate limits and
+# transport errors. Client errors (4xx other than 429) are our fault and will
+# fail identically on retry, so they surface immediately.
+_RETRYABLE = (
+    "HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504",
+    "Could not reach",
+)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    return any(code in str(exc) for code in _RETRYABLE)
+
+
+def _with_retries(fn, *args, **kwargs):
+    """Call `fn`, retrying transient upstream failures with exponential backoff.
+
+    A single unretried HTTP 500 lost a whole conversation turn in the logs
+    (empty question, empty answer), so the cheap retry is worth it."""
+    attempts = max(0, config.LLM_MAX_RETRIES) + 1
+    for i in range(attempts):
+        try:
+            return fn(*args, **kwargs)
+        except (OllamaError, OpenAIError) as exc:
+            if not _is_retryable(exc) or i == attempts - 1:
+                raise
+            if config.LLM_RETRY_BASE_S:
+                time.sleep(config.LLM_RETRY_BASE_S * (2 ** i))
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 # Embeddings match the deployment's index: Ollama nomic-embed-text (local, 768)
@@ -150,6 +181,11 @@ class OllamaClient:
 
     # --- internals ---------------------------------------------------------
     def _post(self, path: str, payload: dict) -> dict:
+        # Retry at the transport layer only: prompt construction upstream is
+        # untouched, so a retry never re-renders or double-logs a turn.
+        return _with_retries(self._post_once, path, payload)
+
+    def _post_once(self, path: str, payload: dict) -> dict:
         url = f"{self.host}{path}"
         try:
             resp = requests.post(url, json=payload, timeout=self.timeout)
@@ -194,6 +230,11 @@ class OpenAIClient:
         }
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
+        # Retry transient upstream failures at the transport layer only — the
+        # payload above is already built, so a retry never re-renders a prompt.
+        return _with_retries(self._request, payload)
+
+    def _request(self, payload: dict) -> str:
         try:
             resp = requests.post(
                 self.API_URL, json=payload, timeout=self.timeout,
