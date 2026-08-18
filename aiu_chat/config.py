@@ -130,6 +130,11 @@ OLLAMA_TIMEOUT = int(os.getenv("AIU_OLLAMA_TIMEOUT", "180"))
 # benefit on deterministic SQL/JSON generation. Set to "1"/"true" to re-enable.
 OLLAMA_THINK = os.getenv("AIU_OLLAMA_THINK", "false").lower() in ("1", "true", "yes")
 
+# Transient upstream failures (HTTP 5xx / 429) cost a whole logged turn once.
+# Retry a couple of times with exponential backoff before surfacing the error.
+LLM_MAX_RETRIES = int(os.getenv("AIU_LLM_MAX_RETRIES", "2"))
+LLM_RETRY_BASE_S = float(os.getenv("AIU_LLM_RETRY_BASE_S", "1.0"))
+
 # --- Multi-source planner (feature #2) -------------------------------------
 # When true, the router may select MORE THAN ONE source for a question (e.g. a
 # live daily figure + a historical average + a methodology definition), and a
