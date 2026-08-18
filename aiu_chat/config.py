@@ -102,14 +102,14 @@ _OPENAI_TIERS = {
     },
     "gpt_mini": {
         "provider": "openai",
-        "model": os.getenv("AIU_OPENAI_MINI", "gpt-5.4-mini"),
-        "label": "🧠 Balanced · GPT mini",
+        "model": os.getenv("AIU_OPENAI_MINI", "gpt-5.6-luna"),
+        "label": "🧠 Balanced · GPT 5.6 luna",
         "blurb": "Balanced OpenAI model — a good default.",
     },
     "gpt_max": {
         "provider": "openai",
-        "model": os.getenv("AIU_OPENAI_MAX", "gpt-5.5"),
-        "label": "🚀 Max · GPT (most capable)",
+        "model": os.getenv("AIU_OPENAI_MAX", "gpt-5.6-terra"),
+        "label": "🚀 Max · GPT 5.6 terra (most capable)",
         "blurb": "OpenAI's most capable general model. Best quality, higher cost.",
     },
 }
