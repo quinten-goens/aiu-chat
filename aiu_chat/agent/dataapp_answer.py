@@ -386,7 +386,10 @@ def _answer_timeseries(question, spec, client, fetch_ts) -> DataAppAnswer:
     chart_spec = _timeseries_chart_spec(question, result_df, client)
 
     # Narrate the series/result (grounded in the rows; a sample if long).
-    rows_json = result_df.head(60).to_json(orient="records")
+    # The sample must SPAN the window, not just its head: a head(60) of a 226-day
+    # series made the model honestly report a period ending in March for a
+    # question that asked through August (four logged conversations).
+    rows_json = _narration_sample(result_df).to_json(orient="records")
     messages = prompts.build_dataapp_timeseries_messages(
         question, metric_line, entity_name, start, end, rows_json, capped=truncated)
     answer = client.chat(messages, temperature=0.0).strip()
@@ -457,6 +460,26 @@ def _maybe_manipulate(question, spec, frames, series, client):
         return agg.dataframe, m
     except Exception:
         return raw_df, None  # manipulation is best-effort; raw series still shown
+
+
+# How many rows of a series the narrating model sees. Long series are downsampled
+# rather than truncated, so the prompt stays small but still spans the window.
+NARRATION_ROWS = 60
+
+
+def _narration_sample(df, max_rows: int = NARRATION_ROWS):
+    """A sample of `df` that SPANS the frame instead of just its head.
+
+    Truncating with head() made the model describe a period ending months before
+    the one the user asked about — it narrated exactly the rows it was given, and
+    said so. Keep the first and last row (so the reported start/end match the
+    request) and take an even stride through the middle."""
+    if df is None or len(df) <= max_rows:
+        return df
+    import numpy as np
+
+    idx = np.unique(np.linspace(0, len(df) - 1, max_rows).round().astype(int))
+    return df.iloc[idx]
 
 
 def _timeseries_chart_spec(question, df, client) -> dict | None:

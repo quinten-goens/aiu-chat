@@ -52,3 +52,32 @@ def test_sync_lookup_spans_a_long_window():
     out = dataapp.find_syncs_in_range(s, start="2026-01-01", end="2026-08-15")
     assert len(out) > 200, f"only {len(out)} days returned"
     assert out[0][1] == "2026-01-01"
+
+
+def test_narration_sample_spans_the_whole_window():
+    """Turns 18/19/21/22, second cause: the model was handed head(60) of a
+    226-day series, so it honestly reported a window ending in March."""
+    import pandas as pd
+
+    from aiu_chat.agent.dataapp_answer import NARRATION_ROWS, _narration_sample
+
+    days = pd.date_range("2026-01-01", "2026-08-14", freq="D")
+    df = pd.DataFrame({"date": days.strftime("%Y-%m-%d"), "value": range(len(days))})
+
+    out = _narration_sample(df)
+    assert len(out) <= NARRATION_ROWS
+    # First and last row must survive, or the narrated period is wrong again.
+    assert out.iloc[0]["date"] == "2026-01-01"
+    assert out.iloc[-1]["date"] == "2026-08-14"
+
+
+def test_narration_sample_passes_short_frames_through():
+    import pandas as pd
+
+    df = pd.DataFrame({"date": ["2026-01-01", "2026-01-02"], "value": [1, 2]})
+    assert len(_ns(df)) == 2
+
+
+def _ns(df):
+    from aiu_chat.agent.dataapp_answer import _narration_sample
+    return _narration_sample(df)
