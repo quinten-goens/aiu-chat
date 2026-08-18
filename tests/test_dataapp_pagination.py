@@ -75,3 +75,24 @@ def test_page_ceiling_is_respected(monkeypatch):
     out = dataapp.find_syncs_in_range(None, start="2020-01-01", end="2025-06-23")
     assert fake.calls <= 3
     assert len(out) <= 300
+
+
+def test_timeseries_reads_every_day(monkeypatch):
+    """Every sync day must appear as a row, in date order, with no gaps."""
+    days = [(date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(150)]
+    syncs = [(1000 + i, d) for i, d in enumerate(days)]
+    monkeypatch.setattr(dataapp, "find_syncs_in_range", lambda *a, **k: syncs)
+
+    def fake_get(session, path, params):
+        sid = params.get("traffic.sync.id")
+        return {"data": [{
+            "dateRange": "DY", "networkType": "total",
+            "value": float(sid), "avgValue": float(sid),
+        }]}
+
+    monkeypatch.setattr(dataapp, "_get", fake_get)
+    res = dataapp.fetch_timeseries("traffic", start="2026-01-01", end="2026-05-30")
+    assert len(res.rows) == 150
+    assert [r["date"] for r in res.rows] == days
+    assert res.rows[0]["value"] == 1000.0
+    assert res.rows[-1]["value"] == 1149.0

@@ -342,8 +342,9 @@ def fetch_timeseries(
                 f"No {metric} syncs for {entity.name} between {start} and {end}.")
 
         endpoint, _, prefix = METRIC_ENDPOINTS[metric]
-        rows: list[dict] = []
-        for sync_id, sync_date in syncs:
+
+        def _read_day(item: tuple[int, str]) -> dict | None:
+            sync_id, sync_date = item
             data = _get(
                 session, endpoint,
                 {f"{prefix}.sync.id": sync_id, "itemsPerPage": 30},
@@ -352,12 +353,21 @@ def fetch_timeseries(
             recs = [{k: v for k, v in r.items() if k != prefix} for r in data]
             dy = _pick_day_record(recs)
             if dy is None:
-                continue
-            rows.append({
+                return None
+            return {
                 "date": sync_date,
                 "value": dy.get("value"),
                 "avgValue": dy.get("avgValue"),
-            })
+            }
+
+        # One call per day is unavoidable (the API has no bulk endpoint), but they
+        # are independent, so run a bounded pool instead of ~200 serial requests.
+        rows: list[dict] = []
+        workers = max(1, min(config.DATAAPP_CONCURRENCY, len(syncs)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for row in pool.map(_read_day, syncs):
+                if row is not None:
+                    rows.append(row)
     finally:
         if own:
             session.close()
