@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 
 from aiu_chat import config
-from aiu_chat.agent import prompts
+from aiu_chat.agent import aliases, prompts
 from aiu_chat.agent.catalog import Catalog, get_catalog
 from aiu_chat.agent.concept import ConceptAnswer, answer_concept_question
 from aiu_chat.agent.dataapp_answer import DataAppAnswer, answer_dataapp_question
@@ -177,10 +177,31 @@ def plan_routes(question: str, client: OllamaClient, *, max_routes: int) -> list
 _CLARIFIABLE_ROUTES = {"data", "both", "dataapp", "nm_live"}
 
 
+def _candidate_entity_names(question: str) -> list[str]:
+    """Multi-word proper-noun-ish spans from the question, longest first.
+
+    Cheap and deliberately over-generous: `aliases.resolve_near_miss` is the
+    authority on what is actually a near-miss, so a false candidate costs
+    nothing but a dict lookup."""
+    spans = re.findall(
+        r"\b([A-Z][\w’'-]*(?:\s+(?:[A-Z][\w’'-]*|ACC|UAC|FIR))*)", question)
+    return sorted({s.strip() for s in spans if s.strip()}, key=len, reverse=True)
+
+
 def needs_clarification(question: str, route: str, client: OllamaClient) -> str | None:
     """Return a single clarifying question if an essential detail is missing,
     else None. Conservative: only fires when the agent genuinely can't proceed.
     Failures default to None (proceed) so a hiccup never blocks an answer."""
+    # A named ACC/UAC is a near-miss for a real FIR/ANSP entity. Three logged
+    # conversations about "Athens ACC" were refused outright even though Greece
+    # FIR holds the answer — ask instead of failing closed. Checked BEFORE the
+    # route guard: the refusals came back on routes that never reach the LLM
+    # clarification below.
+    for token in _candidate_entity_names(question):
+        nm = aliases.resolve_near_miss(token)
+        if nm is not None:
+            return nm.question()
+
     if route not in _CLARIFIABLE_ROUTES:
         return None
     try:
