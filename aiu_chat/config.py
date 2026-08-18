@@ -143,6 +143,9 @@ LLM_RETRY_BASE_S = float(os.getenv("AIU_LLM_RETRY_BASE_S", "1.0"))
 MULTI_SOURCE = os.getenv("AIU_MULTI_SOURCE", "true").lower() in ("1", "true", "yes")
 # Cap on how many sources one question may fan out to (bounds latency/cost).
 MAX_ROUTES = int(os.getenv("AIU_MAX_ROUTES", "3"))
+# Independent sub-questions in a compound answer are fanned out in parallel; the
+# sequential version made a 3-part question cost the sum of its parts.
+ROUTE_CONCURRENCY = int(os.getenv("AIU_ROUTE_CONCURRENCY", "3"))
 
 # --- Cross-frame aggregation (feature #4) ----------------------------------
 # When true, a turn that produced several tabular frames (multi-source / fan-out)
