@@ -124,7 +124,30 @@ def _get(session: requests.Session, path: str, params: dict) -> dict:
     return r.json()
 
 
+_entity_cache: dict[tuple[str, str], tuple[float, Entity]] = {}
+
+
+def clear_caches() -> None:
+    """Drop memoised lookups (tests, and after a data refresh)."""
+    _entity_cache.clear()
+
+
 def resolve_entity(kind: str, query: str, session: requests.Session) -> Entity:
+    """Resolve a name or code to an entity id, memoised for a short TTL.
+
+    Entity ids are stable, so re-resolving "France" on every turn is pure
+    latency. Sync ids are NOT cached here — they roll daily and a stale one
+    would silently serve yesterday's figure as today's."""
+    key = (kind, (query or "").strip().lower())
+    hit = _entity_cache.get(key)
+    if hit is not None and (time.monotonic() - hit[0]) < config.DATAAPP_CACHE_TTL_S:
+        return hit[1]
+    entity = _resolve_entity_uncached(kind, query, session)
+    _entity_cache[key] = (time.monotonic(), entity)
+    return entity
+
+
+def _resolve_entity_uncached(kind: str, query: str, session: requests.Session) -> Entity:
     """Resolve a name or code to an entity id via the dimension endpoint."""
     if kind not in ENTITY_ENDPOINTS:
         raise DataAppError(f"Unknown entity kind: {kind}")

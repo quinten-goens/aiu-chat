@@ -96,3 +96,49 @@ def test_timeseries_reads_every_day(monkeypatch):
     assert [r["date"] for r in res.rows] == days
     assert res.rows[0]["value"] == 1000.0
     assert res.rows[-1]["value"] == 1149.0
+
+
+def test_entity_resolution_is_cached(monkeypatch):
+    calls = {"n": 0}
+
+    def counting_get(session, path, params):
+        calls["n"] += 1
+        return {"data": [{"id": 7, "name": "France", "code": "FR"}]}
+
+    dataapp.clear_caches()
+    monkeypatch.setattr(dataapp, "_get", counting_get)
+    a = dataapp.resolve_entity("country", "France", None)
+    b = dataapp.resolve_entity("country", "France", None)
+    assert a.id == b.id == 7
+    assert calls["n"] == 1, "second lookup should hit the cache"
+
+
+def test_entity_cache_expires(monkeypatch):
+    """A stale entry must not outlive the TTL."""
+    calls = {"n": 0}
+
+    def counting_get(session, path, params):
+        calls["n"] += 1
+        return {"data": [{"id": 7, "name": "France", "code": "FR"}]}
+
+    dataapp.clear_caches()
+    monkeypatch.setattr(dataapp, "_get", counting_get)
+    monkeypatch.setattr(dataapp.config, "DATAAPP_CACHE_TTL_S", 0)
+    dataapp.resolve_entity("country", "France", None)
+    dataapp.resolve_entity("country", "France", None)
+    assert calls["n"] == 2
+
+
+def test_entity_cache_distinguishes_kind_and_query(monkeypatch):
+    seen = []
+
+    def counting_get(session, path, params):
+        seen.append(params)
+        return {"data": [{"id": len(seen), "name": "X", "code": "X"}]}
+
+    dataapp.clear_caches()
+    monkeypatch.setattr(dataapp, "_get", counting_get)
+    a = dataapp.resolve_entity("country", "France", None)
+    b = dataapp.resolve_entity("country", "Spain", None)
+    c = dataapp.resolve_entity("airport", "France", None)
+    assert a.id != b.id != c.id

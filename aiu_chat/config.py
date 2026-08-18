@@ -261,6 +261,10 @@ DATAAPP_THROTTLE_S = float(os.getenv("AIU_DATAAPP_THROTTLE_S", "0.15"))
 # Parallel per-day metric reads in a time series. Modest by design: enough to
 # make a 200-day series usable, low enough to stay a polite client.
 DATAAPP_CONCURRENCY = int(os.getenv("AIU_DATAAPP_CONCURRENCY", "8"))
+# Entity lookups ("France" -> id) are stable; cache them for a session to avoid
+# re-resolving the same name on every turn. Sync ids change daily, so this TTL is
+# short enough to pick up a new day's data.
+DATAAPP_CACHE_TTL_S = int(os.getenv("AIU_DATAAPP_CACHE_TTL_S", "900"))
 
 # --- EUROCONTROL NM live API -----------------------------------------------
 # The genuinely real-time Network Manager API behind .../performance/live.html.
