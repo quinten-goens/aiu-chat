@@ -418,6 +418,18 @@ def _answer_timeseries(question, spec, client, fetch_ts) -> DataAppAnswer:
         question, metric_line, entity_name, actual_start, end, rows_json,
         capped=truncated)
     answer = client.chat(messages, temperature=0.0).strip()
+
+    # State partial coverage deterministically rather than hoping the model
+    # mentions it. A short series that reads as if it answered the whole question
+    # is the failure mode behind several logged turns, so the caveat leads.
+    notes = []
+    for ts in series:
+        note = ts.coverage_note()
+        if note and note not in notes:
+            notes.append(note)
+    if notes:
+        answer = "\n\n".join(notes) + "\n\n" + answer
+
     if errors:
         answer += "\n\n_(No data for: " + "; ".join(errors) + ".)_"
 

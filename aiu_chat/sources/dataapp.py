@@ -106,6 +106,40 @@ class TimeseriesResult:
     # True if the requested START was lifted to DATAAPP_FIRST_DAY because the
     # API holds nothing earlier. The END is never trimmed.
     truncated: bool = False
+    # The window the CALLER asked for, before any adjustment. `start`/`end` above
+    # are what we actually queried; these two are what the user typed, so
+    # coverage_note() can compare them and explain any shortfall.
+    requested_start: str = ""
+    requested_end: str = ""
+
+    def coverage_note(self) -> str | None:
+        """Explain a partial result, or None when the window is fully covered.
+
+        A series can fall short at either end: before DATAAPP_FIRST_DAY (nothing
+        exists yet) or after the latest available day (D-1, not yet reported).
+        Returning fewer days than asked without saying so is the failure mode
+        behind several logged conversations — the answer looked authoritative
+        while quietly describing a different period than the question."""
+        if not self.rows:
+            return None
+        req_start = self.requested_start or self.start
+        req_end = self.requested_end or self.end
+        have_start = self.rows[0].get("date", "")
+        have_end = self.rows[-1].get("date", "")
+        missing_head = bool(have_start and req_start and have_start > req_start)
+        missing_tail = bool(have_end and req_end and have_end < req_end)
+        if not (missing_head or missing_tail):
+            return None
+
+        note = (f"Only part of the requested period is available. "
+                f"You asked for {req_start} to {req_end}; "
+                f"the data covers {have_start} to {have_end}")
+        why = []
+        if missing_head:
+            why.append(f"EUROCONTROL Data App coverage starts on {DATAAPP_FIRST_DAY}")
+        if missing_tail:
+            why.append(f"figures run only to the latest reported day ({have_end})")
+        return note + " — " + "; ".join(why) + "."
 
 
 @dataclass
@@ -364,6 +398,9 @@ def fetch_timeseries(
     omit both for the whole network."""
     if metric not in METRIC_ENDPOINTS:
         raise DataAppError(f"Unknown metric: {metric}")
+    # Keep what the caller asked for: coverage_note() compares it to what we
+    # actually got, so a short series can explain itself.
+    requested_start, requested_end = start, end
     start, end, truncated = _clamp_period(start, end)
 
     own = session is None
@@ -414,6 +451,7 @@ def fetch_timeseries(
     return TimeseriesResult(
         metric=metric, entity=entity, start=start, end=end,
         rows=rows, truncated=truncated,
+        requested_start=requested_start, requested_end=requested_end,
     )
 
 

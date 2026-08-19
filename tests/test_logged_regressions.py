@@ -111,3 +111,55 @@ def test_coverage_answer_ignores_normal_questions():
     from aiu_chat.agent.dataapp_answer import coverage_answer
 
     assert coverage_answer("How many flights in France on 10 March 2026?") is None
+
+
+# --- partial coverage must be stated, not silently returned -----------------
+
+def _ts(rows_first, rows_last, req_start, req_end):
+    from aiu_chat.sources.dataapp import Entity, TimeseriesResult
+    import datetime as dt
+    d0 = dt.date.fromisoformat(rows_first)
+    n = (dt.date.fromisoformat(rows_last) - d0).days + 1
+    rows = [{"date": (d0 + dt.timedelta(days=i)).isoformat(), "value": 1.0,
+             "avgValue": None} for i in range(n)]
+    return TimeseriesResult(
+        metric="traffic", entity=Entity("aircraft_operator", 9, "SAS Group", "SAS"),
+        start=req_start, end=req_end, rows=rows)
+
+
+def test_coverage_note_when_start_is_clipped():
+    """Asking from 2022 must say the data only starts in 2024."""
+    ts = _ts("2024-01-01", "2026-08-18", "2022-01-01", "2026-08-18")
+    note = ts.coverage_note()
+    assert note is not None
+    assert "2024-01-01" in note
+    assert "2022-01-01" in note
+
+
+def test_coverage_note_when_end_is_clipped():
+    """Asking past the latest available day must say so too — this was silent."""
+    ts = _ts("2026-06-01", "2026-08-18", "2026-06-01", "2026-12-31")
+    note = ts.coverage_note()
+    assert note is not None
+    assert "2026-08-18" in note
+    assert "2026-12-31" in note
+
+
+def test_coverage_note_when_both_ends_clipped():
+    ts = _ts("2024-01-01", "2026-08-18", "2022-01-01", "2026-12-31")
+    note = ts.coverage_note()
+    assert note is not None
+    assert "2024-01-01" in note and "2026-08-18" in note
+
+
+def test_no_coverage_note_when_fully_covered():
+    ts = _ts("2026-01-01", "2026-03-01", "2026-01-01", "2026-03-01")
+    assert ts.coverage_note() is None
+
+
+def test_no_coverage_note_for_empty_series():
+    from aiu_chat.sources.dataapp import Entity, TimeseriesResult
+    ts = TimeseriesResult(metric="traffic",
+                          entity=Entity("country", 1, "France", "FR"),
+                          start="2022-01-01", end="2022-02-01", rows=[])
+    assert ts.coverage_note() is None

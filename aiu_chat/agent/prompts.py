@@ -589,9 +589,10 @@ full data is shown to the user as a table and chart).
 - If the rows carry an `entity` column, they COMPARE several entities — describe \
 each entity's series (and how they compare, e.g. which is consistently higher) \
 rather than blending them into one figure.
-- If the start was moved (you are told so), OPEN the answer by saying the data \
-only goes back that far — do not blame "limits" and do not imply the user's own \
-range was unreasonable.
+- Do NOT add your own caveat about the period being shortened or the data not \
+going back far enough. A separate, deterministic note already states the exact \
+coverage above your answer; repeating it reads as stammering. Just describe the \
+period you were given.
 - State that figures are daily Data App data through the latest available day.
 """
 
@@ -815,10 +816,9 @@ def build_dataapp_timeseries_messages(
     # Name the real reason: the API simply has no earlier data. The old wording
     # ("capped to stay within limits") made the app look arbitrarily restrictive
     # for asking about years that do not exist upstream.
-    capped_txt = (
-        f" — note the series starts on {start} because EUROCONTROL Data App "
-        "coverage does not go back any further"
-    ) if capped else ""
+    # The coverage caveat is added deterministically by the caller, so the prompt
+    # no longer asks the model to produce one (it used to say it twice).
+    capped_txt = ""
     return [
         Message("system", DATAAPP_TIMESERIES_SYSTEM),
         Message("user", DATAAPP_TIMESERIES_USER.format(
