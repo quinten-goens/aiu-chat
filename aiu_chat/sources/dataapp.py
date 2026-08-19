@@ -128,7 +128,19 @@ class TimeseriesResult:
         have_end = self.rows[-1].get("date", "")
         missing_head = bool(have_start and req_start and have_start > req_start)
         missing_tail = bool(have_end and req_end and have_end < req_end)
-        if not (missing_head or missing_tail):
+
+        # Days can also be missing from the MIDDLE while both ends line up (a
+        # reporting gap). Ends matching is not proof the series is complete.
+        span_days = 0
+        try:
+            span_days = (_date.fromisoformat(have_end)
+                         - _date.fromisoformat(have_start)).days + 1
+        except ValueError:
+            pass
+        # Allow a little slack: the API occasionally omits an odd day.
+        has_gaps = bool(span_days and len(self.rows) < span_days * 0.95)
+
+        if not (missing_head or missing_tail or has_gaps):
             return None
 
         note = (f"Only part of the requested period is available. "
@@ -139,6 +151,9 @@ class TimeseriesResult:
             why.append(f"EUROCONTROL Data App coverage starts on {DATAAPP_FIRST_DAY}")
         if missing_tail:
             why.append(f"figures run only to the latest reported day ({have_end})")
+        if has_gaps:
+            why.append(f"only {len(self.rows)} of {span_days} days in that span "
+                       "were reported")
         return note + " — " + "; ".join(why) + "."
 
 

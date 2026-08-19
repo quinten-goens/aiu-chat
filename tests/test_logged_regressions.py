@@ -163,3 +163,32 @@ def test_no_coverage_note_for_empty_series():
                           entity=Entity("country", 1, "France", "FR"),
                           start="2022-01-01", end="2022-02-01", rows=[])
     assert ts.coverage_note() is None
+
+
+def test_coverage_note_flags_interior_gaps():
+    """Ends can match while the middle is missing — that must not be silent."""
+    from aiu_chat.sources.dataapp import Entity, TimeseriesResult
+
+    rows = [{"date": d, "value": 1.0} for d in
+            ["2026-01-01", "2026-01-02", "2026-03-30", "2026-03-31"]]
+    ts = TimeseriesResult(metric="traffic", entity=Entity("country", 1, "X", ""),
+                          start="2026-01-01", end="2026-03-31", rows=rows,
+                          requested_start="2026-01-01", requested_end="2026-03-31")
+    note = ts.coverage_note()
+    assert note is not None
+    assert "4" in note  # says how many days actually came back
+
+
+def test_no_gap_note_for_dense_series():
+    """A complete daily series must stay quiet."""
+    import datetime as dt
+
+    from aiu_chat.sources.dataapp import Entity, TimeseriesResult
+
+    d0 = dt.date(2026, 1, 1)
+    rows = [{"date": (d0 + dt.timedelta(days=i)).isoformat(), "value": 1.0}
+            for i in range(60)]
+    ts = TimeseriesResult(metric="traffic", entity=Entity("country", 1, "X", ""),
+                          start="2026-01-01", end="2026-03-01", rows=rows,
+                          requested_start="2026-01-01", requested_end="2026-03-01")
+    assert ts.coverage_note() is None
